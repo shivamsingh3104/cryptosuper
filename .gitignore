@@ -1,0 +1,14 @@
+# Firebase service account (contains secrets)
+config/serviceAccountKey.json
+
+# Environment variables
+.env
+
+# Node
+node_modules/
+
+# Uploads (user-generated content)
+uploads/
+
+# OS
+.DS_Store
