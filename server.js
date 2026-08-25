@@ -45,8 +45,22 @@ function writeDB(file, data) {
 // ── Express app ─────────────────────────────────────────────
 const app = express();
 
+const ALLOWED_ORIGINS = [
+  process.env.FRONTEND_URL,
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "https://superapp.madhavsingh.in",
+  "https://cryptosuper.onrender.com",
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:3000",
+  origin: (origin, callback) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true);
+    }
+  },
   credentials: true,
 }));
 
