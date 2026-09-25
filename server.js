@@ -59,6 +59,8 @@ const allowedOrigins = [
   "http://localhost:3002",
   "https://superapp.madhavsingh.in",
   "https://cryptosuper.onrender.com",
+  "https://myamoto.com",
+  "https://www.myamoto.com",
 ].filter(Boolean);
 
 app.use(cors({
@@ -219,6 +221,26 @@ app.get("/api/users/debug/:uid", requireUser, async (req, res) => {
 });
 
 // ── ADMIN ROUTES ────────────────────────────────────────────
+// Password .env se aata hai aur token runtime pe banta hai —
+// dono source me hardcoded nahi hain, to browser bundle me leak nahi ho sakte.
+
+const adminTokens = new Set();
+
+app.post("/api/admin/login", (req, res) => {
+  const { email, password } = req.body;
+  if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
+    const token = require("crypto").randomBytes(32).toString("hex");
+    adminTokens.add(token);
+    return res.json({ success: true, token });
+  }
+  return res.status(401).json({ message: "Invalid admin credentials" });
+});
+
+function requireAdmin(req, res, next) {
+  if (adminTokens.has(req.headers["x-admin-token"])) return next();
+  return res.status(401).json({ message: "Unauthorized" });
+}
+
 // Admin auth ab Firebase ID token + Firestore role check karta hai.
 // Shared secret / hardcoded password poora hata diya gaya hai.
 
