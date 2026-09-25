@@ -18,6 +18,8 @@ import swapRoutes from "./routes/swap.js";
 import marketFeesRoutes from "./routes/marketFees.js";
 import tradingRoutes from "./routes/trading.js";
 import stakingRoutes from "./routes/staking.js";
+import requireUser from "./middleware/requireUser.js";
+import { balanceKey } from "./config/coins.js";
 
 dotenv.config();
 
@@ -45,22 +47,22 @@ function writeDB(file, data) {
 // ── Express app ─────────────────────────────────────────────
 const app = express();
 
-const ALLOWED_ORIGINS = [
-  process.env.FRONTEND_URL,
+// FRONTEND_URL me comma-separated multiple origins daal sakte ho,
+// e.g. "https://kepwix.com,https://www.kepwix.com"
+const allowedOrigins = [
+  ...(process.env.FRONTEND_URL || "http://localhost:3000")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean),
   "http://localhost:3000",
   "http://localhost:3001",
+  "http://localhost:3002",
   "https://superapp.madhavsingh.in",
   "https://cryptosuper.onrender.com",
 ].filter(Boolean);
 
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(null, true);
-    }
-  },
+  origin: allowedOrigins,
   credentials: true,
 }));
 
@@ -93,11 +95,13 @@ app.get("/", (req, res) => {
 });
 
 // POST /api/users/sync
-app.post("/api/users/sync", async (req, res) => {
+app.post("/api/users/sync", requireUser, async (req, res) => {
   try {
-    const { uid, email, name, photo, loginMethod } = req.body;
+    const { name, photo, loginMethod } = req.body;
+    const uid = req.uid;
+    const email = req.email || "";
     if (!uid || !email) {
-      return res.status(400).json({ message: "uid and email required" });
+      return res.status(400).json({ message: "Login email required" });
     }
 
     const users = readDB(USERS_FILE);
@@ -144,10 +148,9 @@ app.post("/api/users/sync", async (req, res) => {
 });
 
 // GET /api/users/me?uid=xxx
-app.get("/api/users/me", async (req, res) => {
+app.get("/api/users/me", requireUser, async (req, res) => {
   try {
-    const { uid } = req.query;
-    if (!uid) return res.status(400).json({ message: "uid required" });
+    const uid = req.uid;
 
     const users = readDB(USERS_FILE);
     const user = users.find(u => u.uid === uid);
@@ -160,10 +163,10 @@ app.get("/api/users/me", async (req, res) => {
 });
 
 // PUT /api/users/me
-app.put("/api/users/me", async (req, res) => {
+app.put("/api/users/me", requireUser, async (req, res) => {
   try {
-    const { uid, name, phone, country } = req.body;
-    if (!uid) return res.status(400).json({ message: "uid required" });
+    const { name, phone, country } = req.body;
+    const uid = req.uid;
 
     const users = readDB(USERS_FILE);
     const idx = users.findIndex(u => u.uid === uid);
@@ -187,10 +190,9 @@ app.put("/api/users/me", async (req, res) => {
 });
 
 // GET /api/users/balance?uid=xxx
-app.get("/api/users/balance", async (req, res) => {
+app.get("/api/users/balance", requireUser, async (req, res) => {
   try {
-    const { uid } = req.query;
-    if (!uid) return res.status(400).json({ error: "uid required" });
+    const uid = req.uid;
 
     const doc = await db.collection("users").doc(uid).get();
     if (!doc.exists) return res.json({ balance: 0 });
@@ -205,9 +207,9 @@ app.get("/api/users/balance", async (req, res) => {
 });
 
 // DEBUG: view raw Firestore data for a user
-app.get("/api/users/debug/:uid", async (req, res) => {
+app.get("/api/users/debug/:uid", requireUser, async (req, res) => {
   try {
-    const { uid } = req.params;
+    const uid = req.uid;
     const doc = await db.collection("users").doc(uid).get();
     if (!doc.exists) return res.json({ error: "User not found in Firestore" });
     return res.json(doc.data());
@@ -346,6 +348,30 @@ app.put("/api/admin/deposits/:id/approve", adminAuth, async (req, res) => {
   }
 });
 
+// PUT /api/admin/deposits/:id/reject
+app.put("/api/admin/deposits/:id/reject", adminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const doc = await db.collection("deposits").doc(id).get();
+    if (!doc.exists) return res.status(404).json({ error: "Not found" });
+
+    if (doc.data().status !== "pending") {
+      return res.json({ error: "Already processed" });
+    }
+
+    await db.collection("deposits").doc(id).update({
+      status: "rejected",
+      rejectedAt: new Date(),
+      rejectReason: reason || ""
+    });
+
+    res.json({ success: true, message: "Deposit rejected" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── ADMIN: WITHDRAWALS ───────────────────────────────────────
 app.get("/api/admin/withdrawals", adminAuth, async (req, res) => {
   try {
@@ -407,11 +433,10 @@ app.get("/api/admin/swaps", adminAuth, async (req, res) => {
   }
 });
 
+// Approve = toAmount credit hota hai (fromAmount pehle se escrow hai)
 app.put("/api/admin/swaps/:id/process", adminAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { toCurrency, toAmount, notes } = req.body;
-
     const doc = await db.collection("swaps").doc(id).get();
     if (!doc.exists) return res.status(404).json({ error: "Swap not found" });
 
@@ -420,15 +445,127 @@ app.put("/api/admin/swaps/:id/process", adminAuth, async (req, res) => {
       return res.json({ error: `Swap already ${swap.status}` });
     }
 
+    const toKey = balanceKey(swap.toCurrency);
+
+    await db.collection("users").doc(swap.userId).set({
+      [toKey]: FieldValue.increment(Number(swap.toAmount))
+    }, { merge: true });
+
     await db.collection("swaps").doc(id).update({
-      status: "processed",
+      status: "approved",
       processedBy: req.body.adminId || "admin",
       processedAt: new Date(),
-      adminNotes: notes || "",
+      adminNotes: req.body.notes || "",
       updatedAt: new Date()
     });
 
-    res.json({ success: true, message: "Swap processed. User can now claim." });
+    res.json({ success: true, message: `Swap approved. ${swap.toAmount} ${swap.toCurrency} credited.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reject = fromAmount wapas (refund)
+app.put("/api/admin/swaps/:id/reject", adminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const doc = await db.collection("swaps").doc(id).get();
+    if (!doc.exists) return res.status(404).json({ error: "Swap not found" });
+
+    const swap = doc.data();
+    if (swap.status !== "pending") {
+      return res.json({ error: `Swap already ${swap.status}` });
+    }
+
+    const fromKey = balanceKey(swap.fromCurrency);
+
+    await db.collection("users").doc(swap.userId).set({
+      [fromKey]: FieldValue.increment(Number(swap.fromAmount))
+    }, { merge: true });
+
+    await db.collection("swaps").doc(id).update({
+      status: "rejected",
+      processedBy: req.body.adminId || "admin",
+      processedAt: new Date(),
+      adminNotes: req.body.notes || "",
+      updatedAt: new Date()
+    });
+
+    res.json({ success: true, message: `Swap rejected. ${swap.fromAmount} ${swap.fromCurrency} refunded.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── ADMIN: TRADE MANAGEMENT ───────────────────────────────────
+app.get("/api/admin/trades", adminAuth, async (req, res) => {
+  try {
+    const snapshot = await db.collection("tradeHistory")
+      .orderBy("createdAt", "desc")
+      .get();
+    res.json(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Approve = doosri side credit (Buy me coin, Sell me USDT)
+app.put("/api/admin/trades/:id/process", adminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const doc = await db.collection("tradeHistory").doc(id).get();
+    if (!doc.exists) return res.status(404).json({ error: "Order not found" });
+
+    const trade = doc.data();
+    if (trade.status !== "pending") {
+      return res.json({ error: `Order already ${trade.status}` });
+    }
+
+    const creditKey = trade.side === "Buy" ? balanceKey(trade.base) : balanceKey(trade.quote);
+    const creditAmt = trade.side === "Buy" ? Number(trade.amount) : Number(trade.total);
+
+    await db.collection("users").doc(trade.userId).set({
+      [creditKey]: FieldValue.increment(creditAmt)
+    }, { merge: true });
+
+    await db.collection("tradeHistory").doc(id).update({
+      status: "filled",
+      processedAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    res.json({ success: true, message: `Order filled. ${creditAmt} ${creditKey} credited.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reject = escrow refund
+app.put("/api/admin/trades/:id/reject", adminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const doc = await db.collection("tradeHistory").doc(id).get();
+    if (!doc.exists) return res.status(404).json({ error: "Order not found" });
+
+    const trade = doc.data();
+    if (trade.status !== "pending") {
+      return res.json({ error: `Order already ${trade.status}` });
+    }
+
+    const refundKey = trade.side === "Buy" ? balanceKey(trade.quote) : balanceKey(trade.base);
+    const refundAmt = trade.side === "Buy" ? Number(trade.total) : Number(trade.amount);
+
+    await db.collection("users").doc(trade.userId).set({
+      [refundKey]: FieldValue.increment(refundAmt)
+    }, { merge: true });
+
+    await db.collection("tradeHistory").doc(id).update({
+      status: "rejected",
+      processedAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    res.json({ success: true, message: `Order rejected. ${refundAmt} refunded.` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
