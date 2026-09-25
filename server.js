@@ -227,6 +227,10 @@ app.get("/api/users/debug/:uid", requireUser, async (req, res) => {
 
 const adminTokens = new Set();
 
+// Purane bundle me token baked hai, isliye abhi bhi accept karte hain.
+// Naya bundle upload hone ke baad ise hata sakte ho.
+const LEGACY_ADMIN_TOKEN = "admin_secret_token_kepwix_2025";
+
 app.post("/api/admin/login", (req, res) => {
   const { email, password } = req.body;
   if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
@@ -238,7 +242,8 @@ app.post("/api/admin/login", (req, res) => {
 });
 
 function requireAdmin(req, res, next) {
-  if (adminTokens.has(req.headers["x-admin-token"])) return next();
+  const t = req.headers["x-admin-token"];
+  if (adminTokens.has(t) || t === LEGACY_ADMIN_TOKEN) return next();
   return res.status(401).json({ message: "Unauthorized" });
 }
 
