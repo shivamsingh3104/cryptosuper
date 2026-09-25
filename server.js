@@ -219,26 +219,15 @@ app.get("/api/users/debug/:uid", requireUser, async (req, res) => {
 });
 
 // ── ADMIN ROUTES ────────────────────────────────────────────
-app.post("/api/admin/login", (req, res) => {
-  const { email, password } = req.body;
-  if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
-    return res.json({ success: true, token: "admin_secret_token_kepwix_2025" });
-  }
-  return res.status(401).json({ message: "Invalid admin credentials" });
-});
+// Admin auth ab Firebase ID token + Firestore role check karta hai.
+// Shared secret / hardcoded password poora hata diya gaya hai.
 
-function adminAuth(req, res, next) {
-  const auth = req.headers["x-admin-token"];
-  if (auth === "admin_secret_token_kepwix_2025") return next();
-  return res.status(403).json({ message: "Unauthorized" });
-}
-
-app.get("/api/admin/users", adminAuth, (req, res) => {
+app.get("/api/admin/users", requireAdmin, (req, res) => {
   const users = readDB(USERS_FILE);
   return res.json(users);
 });
 
-app.get("/api/admin/stats", adminAuth, (req, res) => {
+app.get("/api/admin/stats", requireAdmin, (req, res) => {
   const users = readDB(USERS_FILE);
   const total = users.length;
   const googleUsers = users.filter(u => u.loginMethod === "google").length;
@@ -255,7 +244,7 @@ app.get("/api/admin/stats", adminAuth, (req, res) => {
   return res.json({ total, googleUsers, emailUsers, active, banned, newToday, newWeek });
 });
 
-app.put("/api/admin/users/:uid/status", adminAuth, async (req, res) => {
+app.put("/api/admin/users/:uid/status", requireAdmin, async (req, res) => {
   try {
     const { uid } = req.params;
     const { status } = req.body;
@@ -278,7 +267,7 @@ app.put("/api/admin/users/:uid/status", adminAuth, async (req, res) => {
   }
 });
 
-app.delete("/api/admin/users/:uid", adminAuth, async (req, res) => {
+app.delete("/api/admin/users/:uid", requireAdmin, async (req, res) => {
   try {
     const { uid } = req.params;
     let users = readDB(USERS_FILE);
@@ -299,7 +288,7 @@ app.delete("/api/admin/users/:uid", adminAuth, async (req, res) => {
   }
 });
 
-app.get("/api/admin/users/search", adminAuth, (req, res) => {
+app.get("/api/admin/users/search", requireAdmin, (req, res) => {
   const q = (req.query.q || "").toLowerCase();
   const users = readDB(USERS_FILE);
   const found = q
@@ -312,7 +301,7 @@ app.get("/api/admin/users/search", adminAuth, (req, res) => {
 });
 
 // ── ADMIN: DEPOSITS ──────────────────────────────────────────
-app.get("/api/admin/deposits", adminAuth, async (req, res) => {
+app.get("/api/admin/deposits", requireAdmin, async (req, res) => {
   try {
     const snapshot = await db.collection("deposits").get();
     const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -323,7 +312,7 @@ app.get("/api/admin/deposits", adminAuth, async (req, res) => {
   }
 });
 
-app.put("/api/admin/deposits/:id/approve", adminAuth, async (req, res) => {
+app.put("/api/admin/deposits/:id/approve", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const doc = await db.collection("deposits").doc(id).get();
@@ -349,7 +338,7 @@ app.put("/api/admin/deposits/:id/approve", adminAuth, async (req, res) => {
 });
 
 // PUT /api/admin/deposits/:id/reject
-app.put("/api/admin/deposits/:id/reject", adminAuth, async (req, res) => {
+app.put("/api/admin/deposits/:id/reject", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
@@ -373,7 +362,7 @@ app.put("/api/admin/deposits/:id/reject", adminAuth, async (req, res) => {
 });
 
 // ── ADMIN: WITHDRAWALS ───────────────────────────────────────
-app.get("/api/admin/withdrawals", adminAuth, async (req, res) => {
+app.get("/api/admin/withdrawals", requireAdmin, async (req, res) => {
   try {
     const snapshot = await db.collection("withdrawals").get();
     const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -384,7 +373,7 @@ app.get("/api/admin/withdrawals", adminAuth, async (req, res) => {
   }
 });
 
-app.put("/api/admin/withdrawals/:id/approve", adminAuth, async (req, res) => {
+app.put("/api/admin/withdrawals/:id/approve", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const doc = await db.collection("withdrawals").doc(id).get();
@@ -421,7 +410,7 @@ app.put("/api/admin/withdrawals/:id/approve", adminAuth, async (req, res) => {
 });
 
 // ── ADMIN: SWAP MANAGEMENT ────────────────────────────────────
-app.get("/api/admin/swaps", adminAuth, async (req, res) => {
+app.get("/api/admin/swaps", requireAdmin, async (req, res) => {
   try {
     const snapshot = await db.collection("swaps")
       .orderBy("createdAt", "desc")
@@ -434,7 +423,7 @@ app.get("/api/admin/swaps", adminAuth, async (req, res) => {
 });
 
 // Approve = toAmount credit hota hai (fromAmount pehle se escrow hai)
-app.put("/api/admin/swaps/:id/process", adminAuth, async (req, res) => {
+app.put("/api/admin/swaps/:id/process", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const doc = await db.collection("swaps").doc(id).get();
@@ -466,7 +455,7 @@ app.put("/api/admin/swaps/:id/process", adminAuth, async (req, res) => {
 });
 
 // Reject = fromAmount wapas (refund)
-app.put("/api/admin/swaps/:id/reject", adminAuth, async (req, res) => {
+app.put("/api/admin/swaps/:id/reject", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const doc = await db.collection("swaps").doc(id).get();
@@ -498,7 +487,7 @@ app.put("/api/admin/swaps/:id/reject", adminAuth, async (req, res) => {
 });
 
 // ── ADMIN: TRADE MANAGEMENT ───────────────────────────────────
-app.get("/api/admin/trades", adminAuth, async (req, res) => {
+app.get("/api/admin/trades", requireAdmin, async (req, res) => {
   try {
     const snapshot = await db.collection("tradeHistory")
       .orderBy("createdAt", "desc")
@@ -510,7 +499,7 @@ app.get("/api/admin/trades", adminAuth, async (req, res) => {
 });
 
 // Approve = doosri side credit (Buy me coin, Sell me USDT)
-app.put("/api/admin/trades/:id/process", adminAuth, async (req, res) => {
+app.put("/api/admin/trades/:id/process", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const doc = await db.collection("tradeHistory").doc(id).get();
@@ -541,7 +530,7 @@ app.put("/api/admin/trades/:id/process", adminAuth, async (req, res) => {
 });
 
 // Reject = escrow refund
-app.put("/api/admin/trades/:id/reject", adminAuth, async (req, res) => {
+app.put("/api/admin/trades/:id/reject", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const doc = await db.collection("tradeHistory").doc(id).get();
