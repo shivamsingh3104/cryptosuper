@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { readFileSync, writeFileSync } from "fs";
+import { randomBytes } from "crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import employeeRoutes from "./routes/employeeRoutes.js";
@@ -229,7 +230,7 @@ const adminTokens = new Set();
 app.post("/api/admin/login", (req, res) => {
   const { email, password } = req.body;
   if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
-    const token = require("crypto").randomBytes(32).toString("hex");
+    const token = randomBytes(32).toString("hex");
     adminTokens.add(token);
     return res.json({ success: true, token });
   }
