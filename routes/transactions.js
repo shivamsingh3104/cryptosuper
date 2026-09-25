@@ -1,31 +1,38 @@
 import express from "express";
-import { db, admin } from "../config/firebase.js";
-const FieldValue = admin.firestore.FieldValue;
+import { db } from "../config/firebase.js";
+import requireUser from "../middleware/requireUser.js";
 
 const router = express.Router();
 
-router.post("/submit", async (req, res) => {
+// ── DEPOSIT SUBMIT ───────────────────────────────────────────
+// Deposit sirf "pending" record banata hai. Balance tabhi credit hota hai
+// jab admin PUT /api/admin/deposits/:id/approve kare.
+router.post("/submit", requireUser, async (req, res) => {
   try {
-    const { transactionHash, amount, userId, userEmail } = req.body;
+    const { transactionHash, amount } = req.body;
+    const userId = req.uid;
+    const userEmail = req.email || "";
 
     if (!amount || !userId) {
       return res.json({ error: "Amount and userId required" });
     }
 
-    await db.collection("users").doc(userId).set({
-      balance: FieldValue.increment(Number(amount))
-    }, { merge: true });
-
-    await db.collection("deposits").add({
+    const doc = await db.collection("deposits").add({
       userId,
       userEmail: userEmail || "",
       amount: Number(amount),
       transactionHash: transactionHash || "",
-      status: "approved",
+      coin: "USDT",
+      status: "pending",
       createdAt: new Date()
     });
 
-    res.json({ success: true, message: "Deposit successful! Balance updated." });
+    res.json({
+      success: true,
+      id: doc.id,
+      status: "pending",
+      message: "Deposit submitted! Balance will be credited after admin approval."
+    });
 
   } catch (err) {
     console.error(err);
@@ -33,42 +40,40 @@ router.post("/submit", async (req, res) => {
   }
 });
 
-router.post("/deposit", async (req, res) => {
+// ── DEPOSIT ──────────────────────────────────────────────────
+// Sirf "pending" record banta hai — koi balance change nahi hota.
+// Credit sirf admin approval par (server.js → /api/admin/deposits/:id/approve).
+router.post("/deposit", requireUser, async (req, res) => {
   try {
-    const { userId, userEmail, amount, usdAmount, currency, coin, method, type, walletAddress, txHash } = req.body;
-    console.log("DEPOSIT RECEIVED:", { userId, amount, usdAmount, coin, coinKey: coin && coin !== "USDT" ? coin + "Balance" : "balance" });
+    const { amount, usdAmount, currency, coin, method, type, walletAddress, txHash } = req.body;
+    const userId = req.uid;
+    const userEmail = req.email || "";
 
     if (!amount || !userId) {
       return res.json({ error: "Amount and userId required" });
     }
 
-    const coinKey = coin && coin !== "USDT" ? coin + "Balance" : "balance";
-    console.log("DEPOSIT - coinKey:", coinKey, "amount:", amount);
-
-    await db.collection("users").doc(userId).set({
-      [coinKey]: FieldValue.increment(Number(amount))
-    }, { merge: true });
-
-    // Verify immediately
-    const verifyDoc = await db.collection("users").doc(userId).get();
-    console.log("DEPOSIT - After save, user data:", verifyDoc.data());
-
-    await db.collection("deposits").add({
+    const doc = await db.collection("deposits").add({
       userId,
       userEmail: userEmail || "",
       amount: Number(amount),
       usdAmount: usdAmount ? Number(usdAmount) : Number(amount),
       currency: currency || "USD",
-      coin: coin || "",
+      coin: coin || "USDT",
       method: method || "",
       type: type || "fiat",
       walletAddress: walletAddress || "",
       txHash: txHash || "",
-      status: "approved",
+      status: "pending",
       createdAt: new Date()
     });
 
-    res.json({ success: true, message: "Deposit successful! Balance updated." });
+    res.json({
+      success: true,
+      id: doc.id,
+      status: "pending",
+      message: "Deposit submitted! Balance will be credited after admin approval."
+    });
 
   } catch (err) {
     console.error(err);
@@ -76,9 +81,11 @@ router.post("/deposit", async (req, res) => {
   }
 });
 
-router.post("/withdraw", async (req, res) => {
+router.post("/withdraw", requireUser, async (req, res) => {
   try {
-    const { userId, amount, walletAddress, userEmail, coin, method } = req.body;
+    const { amount, walletAddress, coin, method } = req.body;
+    const userId = req.uid;
+    const userEmail = req.email || "";
 
     if (!userId || !amount || !walletAddress) {
       return res.json({ error: "Missing withdraw details" });
@@ -115,9 +122,10 @@ router.post("/withdraw", async (req, res) => {
   }
 });
 
-router.get("/user/:userId", async (req, res) => {
+router.get("/user/:userId", requireUser, async (req, res) => {
   try {
     const { userId } = req.params;
+    if (userId !== req.uid) return res.status(403).json({ error: "Not allowed" });
     const [depositsSnap, withdrawalsSnap, swapsSnap, tradesSnap] = await Promise.all([
       db.collection("deposits").where("userId", "==", userId).get(),
       db.collection("withdrawals").where("userId", "==", userId).get(),

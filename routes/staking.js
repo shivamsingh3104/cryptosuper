@@ -1,12 +1,15 @@
 import express from "express";
 import { db, admin } from "../config/firebase.js";
+import requireUser from "../middleware/requireUser.js";
 const FieldValue = admin.firestore.FieldValue;
 
 const router = express.Router();
 
-router.post("/create", async (req, res) => {
+router.post("/create", requireUser, async (req, res) => {
   try {
-    const { userId, userEmail, coinId, symbol, name, image, amount, period, rate } = req.body;
+    const { coinId, symbol, name, image, amount, period, rate } = req.body;
+    const userId = req.uid;
+    const userEmail = req.email || "";
 
     if (!userId || !coinId || !amount || !period) {
       return res.json({ error: "Missing staking details" });
@@ -56,7 +59,7 @@ router.post("/create", async (req, res) => {
   }
 });
 
-router.get("/user/:userId", async (req, res) => {
+router.get("/user/:userId", requireUser, async (req, res) => {
   try {
     const { userId } = req.params;
     const snapshot = await db.collection("stakingPlans")
@@ -79,14 +82,15 @@ router.get("/user/:userId", async (req, res) => {
   }
 });
 
-router.put("/cancel/:id", async (req, res) => {
+router.put("/cancel/:id", requireUser, async (req, res) => {
   try {
     const { id } = req.params;
     const doc = await db.collection("stakingPlans").doc(id).get();
     if (!doc.exists) return res.json({ error: "Plan not found" });
 
     const plan = doc.data();
-    if (plan.status !== "active") return res.json({ error: "Already cancelled/completed" });
+    if (plan.userId !== req.uid) return res.status(403).json({ error: "Not your staking plan" });
+    if (plan.status !== "active") return res.status(404).json({ error: "Already cancelled/completed" });
 
     const cancelCoinKey = plan.symbol === "USDT" || plan.symbol === "USDC" ? "balance" : plan.coinId === "bitcoin" ? "BTCBalance" : plan.symbol + "Balance";
 
@@ -156,14 +160,15 @@ router.get("/admin/all", async (req, res) => {
   }
 });
 
-router.put("/claim/:id", async (req, res) => {
+router.put("/claim/:id", requireUser, async (req, res) => {
   try {
     const { id } = req.params;
     const doc = await db.collection("stakingPlans").doc(id).get();
     if (!doc.exists) return res.json({ error: "Plan not found" });
 
     const plan = doc.data();
-    if (plan.status !== "active") return res.json({ error: "Already claimed" });
+    if (plan.userId !== req.uid) return res.status(403).json({ error: "Not your staking plan" });
+    if (plan.status !== "active") return res.status(404).json({ error: "Already claimed" });
 
     const now = Date.now();
     if (now < new Date(plan.endDate).getTime()) {
