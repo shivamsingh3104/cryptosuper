@@ -341,7 +341,7 @@ export default function Navbar() {
       </Link>
  
       {/* Desktop nav links */}
-      <div className="navbar-links">
+      <div className="navbar-links hidden lg:flex">
         {FINAL_NAV_ITEMS.map((item) => (
           <div
             key={item.label}
@@ -397,7 +397,7 @@ export default function Navbar() {
         {/* logged-in actions */}
         {isLoggedIn && (
           <>
-            <button className="nb-deposit-btn" onClick={() => navigate("/profile/wallet?action=deposit")}>
+            <button className="nb-deposit-btn hidden lg:inline-flex" onClick={() => navigate("/profile/wallet?action=deposit")}>
               <svg
                 width="13"
                 height="13"
@@ -414,7 +414,7 @@ export default function Navbar() {
             </button>
  
             <div className="nb-dd-wrap" ref={assetsRef}>
-              <button className="nb-text-btn" onClick={() => setAssetsOpen((o) => !o)}>
+              <button className="nb-text-btn hidden lg:inline-flex" onClick={() => setAssetsOpen((o) => !o)}>
                 Assets <span className="nb-chevron">{assetsOpen ? "▲" : "▾"}</span>
               </button>
  
@@ -509,7 +509,7 @@ export default function Navbar() {
             {/* ── HISTORY DROPDOWN ── */}
             <div className="relative" ref={historyRef}>
               <button
-                className="nb-text-btn"
+                className="nb-text-btn hidden lg:inline-flex"
                 onClick={() => setHistoryOpen((o) => !o)}
               >
                 History{" "}
@@ -631,7 +631,7 @@ export default function Navbar() {
         {/* ── LANGUAGE SWITCHER ── */}
         <div className="relative" ref={langRef}>
           <button
-            className="navbar-lang flex items-center gap-1 cursor-pointer select-none"
+            className="navbar-lang hidden lg:flex items-center gap-1 cursor-pointer select-none"
             onClick={() => setLangOpen((o) => !o)}
           >
             {selectedLang.label}
@@ -670,7 +670,7 @@ export default function Navbar() {
         </div>
         {/* ── END LANGUAGE SWITCHER ── */}
  
-        <button className="hamburger" onClick={() => setMobileOpen((o) => !o)} aria-label="Menu">
+        <button className="hamburger lg:hidden" onClick={() => setMobileOpen((o) => !o)} aria-label="Menu">
           {mobileOpen ? (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -683,75 +683,81 @@ export default function Navbar() {
         </button>
       </div>
  
-      {/* Mobile menu */}
+      {/* Mobile menu — always fully expanded, no hidden accordion */}
       {mobileOpen && (
-        <div className="mobile-menu">
-          {FINAL_NAV_ITEMS.map((item) => (
-            <div key={item.label} className="mobile-menu-section">
-              <button
-                className="mobile-menu-header"
-                onClick={() => setMobExp((e) => (e === item.label ? null : item.label))}
-              >
-                {item.icon && <span style={{ marginRight: 6 }}>{item.icon}</span>}
-                {item.label}
-                <span className={`mobile-chevron${mobExp === item.label ? " open" : ""}`}>▾</span>
-              </button>
- 
-              {mobExp === item.label && (
-                <div className="mobile-submenu">
-                  {(FINAL_NAV_DROPDOWNS[item.label] || []).map((d) => (
+        <>
+          <div
+            onClick={() => setMobileOpen(false)}
+            style={{ position: "fixed", inset: 0, top: 56, zIndex: 90, background: "rgba(0,0,0,0.5)" }}
+          />
+          <div className="mobile-menu" style={{ zIndex: 100 }}>
+            {FINAL_NAV_ITEMS.map((item) => {
+              const kids = FINAL_NAV_DROPDOWNS[item.label] || [];
+              return (
+                <div key={item.label} className="mobile-menu-section">
+                  <div className="mobile-menu-header" style={{ cursor: "default" }}>
+                    {item.icon && <span style={{ marginRight: 6 }}>{item.icon}</span>}
+                    {item.label}
+                  </div>
+                  {kids.map((d) => (
                     <div
                       key={d.title}
                       className="mobile-submenu-item"
                       onClick={() => {
                         navigate(d.path);
                         setMobileOpen(false);
-                        setMobExp(null);
                       }}
                     >
                       <span className="mobile-sub-icon">{d.icon}</span>
                       <span>{d.title}</span>
                     </div>
                   ))}
+                  {kids.length === 0 && (
+                    <div
+                      className="mobile-submenu-item"
+                      onClick={() => { navigate("/"); setMobileOpen(false); }}
+                    >
+                      <span className="mobile-sub-icon">•</span>
+                      <span>{item.label} Home</span>
+                    </div>
+                  )}
                 </div>
+              );
+            })}
+
+            {isLoggedIn && (
+              <div className="mobile-menu-section" style={{ borderTop: "1px solid #2d3148" }}>
+                <button
+                  className="mobile-submenu-item"
+                  style={{ width: "100%", background: "none", border: "none", textAlign: "left" }}
+                  onClick={() => { navigate("/profile/wallet?action=deposit"); setMobileOpen(false); }}
+                >
+                  <span className="mobile-sub-icon">＋</span><span>Deposit</span>
+                </button>
+                <button
+                  className="mobile-submenu-item"
+                  style={{ width: "100%", background: "none", border: "none", textAlign: "left" }}
+                  onClick={() => { handleLogout(); setMobileOpen(false); }}
+                >
+                  <span className="mobile-sub-icon">⏻</span><span>Logout</span>
+                </button>
+              </div>
+            )}
+
+            <div className="mobile-auth-btns">
+              {!isLoggedIn && (
+                <>
+                  <Link to="/login" className="btn-login" style={{ flex: 1, textAlign: "center", display: "block" }}
+                        onClick={() => setMobileOpen(false)}>Log In</Link>
+                  <Link to="/signup" className="btn-signup" style={{ flex: 1, textAlign: "center", display: "block" }}
+                        onClick={() => setMobileOpen(false)}>Sign Up</Link>
+                </>
               )}
             </div>
-          ))}
- 
-          <div className="mobile-auth-btns">
-            {!isLoggedIn ? (
-              <>
-                <Link
-                  to="/login"
-                  className="btn-login"
-                  style={{ flex: 1, textAlign: "center" }}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  Log In
-                </Link>
-                <Link
-                  to="/signup"
-                  className="btn-signup"
-                  style={{ flex: 1, textAlign: "center" }}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  Sign Up
-                </Link>
-              </>
-            ) : (
-              <>
-                <button className="btn-login" style={{ flex: 1 }} onClick={() => navigate("/profile/wallet?action=deposit")}>
-                  Deposit
-                </button>
-                <button className="btn-signup" style={{ flex: 1 }} onClick={handleLogout}>
-                  Logout
-                </button>
-              </>
-            )}
           </div>
-        </div>
+        </>
       )}
       </div>
-    </nav>
+        </nav>
   );
 }
