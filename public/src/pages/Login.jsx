@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebase"; // ✅ ADD
 import { saveUser } from "../services/userService"; // ✅ ADD
+import { authErrorMessage } from "../utils/authErrors";
 
 function generateCaptcha() {
   const chars = "0123456789";
@@ -59,8 +60,12 @@ export default function Login() {
       navigate(from, { replace: true });
 
     } catch (err) {
-      setError(err.message || "Login failed");
+      // Raw "Firebase: Error (auth/invalid-credential)." user ko kuch nahi
+      // batata. Ab code ke basis par clear message.
+      console.error("login failed:", err?.code, err?.message);
+      setError(authErrorMessage(err));
       setLoading(false);
+      refreshCaptcha();
     }
   };
 

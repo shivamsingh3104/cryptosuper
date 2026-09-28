@@ -1,0 +1,34 @@
+{
+  "name": "kepwix",
+  "version": "1.0.0",
+  "private": true,
+  "homepage": ".",
+  "dependencies": {
+    "@heroicons/react": "^2.2.0",
+    "firebase": "^12.12.0",
+    "jodit": "^4.12.2",
+    "jodit-react": "^5.3.21",
+    "lucide-react": "^1.8.0",
+    "qrcode": "^1.5.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-icons": "^5.6.0",
+    "react-router-dom": "^6.22.0",
+    "react-scripts": "5.0.1"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build && rm -rf dist && mv build dist",
+    "build:production": "react-scripts build && rm -rf dist && mv build dist"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version"
+    ]
+  }
+}

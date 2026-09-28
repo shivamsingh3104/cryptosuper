@@ -29,7 +29,6 @@ import Corporate from "./pages/footer/Corporate";
 import Institutional from "./pages/footer/Institutional";
 import Token from "./pages/footer/Token";
 import Profile from "./pages/user/Profile";
-import FiatDeposit from "./pages/FiatDeposit";
 import WalletPage from "./pages/WalletPage";
 import HistoryPage from "./pages/HistoryPage";
 
@@ -81,7 +80,7 @@ export default function App() {
                 <Route path="/dashboard"           element={<UserDashboard />} />
                 <Route path="/page/:slug" element={<DynamicPage />} />
                 <Route path="/profile" element={<Profile />} />
-                <Route path="/fiat-deposit" element={<FiatDeposit />} />
+                {/* Deposit flow hata diya — admin hi wallet me credit karta hai. */}
                 <Route path="/profile/wallet" element={<WalletPage />} />
                 <Route path="/wallet" element={<WalletPage />} />
                 <Route path="/history" element={<HistoryPage />} />

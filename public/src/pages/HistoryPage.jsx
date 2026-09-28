@@ -62,7 +62,11 @@ export default function HistoryPage() {
       return <>{tx.fromAmount} {tx.fromCurrency} → {tx.toAmount} {tx.toCurrency}</>;
     }
     const amt = Number(tx.amount);
-    return <>${isNaN(amt) ? "0.00" : amt.toFixed(2)}</>;
+    if (isNaN(amt)) return <>0.00</>;
+    // Coin alag ho to symbol ke saath dikhao. Hardcode "$" karne se 0.5 BTC
+    // jaisa crypto deposit "$0.50" dikhta, jo galat hota.
+    const cur = tx.currency || "USD";
+    return <>{cur === "USD" ? "$" : ""}{amt.toLocaleString(undefined, { maximumFractionDigits: 8 })}{cur !== "USD" ? ` ${cur}` : ""}</>;
   };
 
   if (!isLoggedIn) {

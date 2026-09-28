@@ -1,7 +1,7 @@
 import express from "express";
 import { db, admin } from "../config/firebase.js";
 import requireUser from "../middleware/requireUser.js";
-import { balanceKey, isSupported, normalizeSymbol } from "../config/coins.js";
+import { balanceKey, isSupported, normalizeSymbol, coinBalance } from "../config/coins.js";
 import { getUsdPrice } from "../config/pricing.js";
 import crypto from "crypto";
 
@@ -52,44 +52,59 @@ router.post("/create", requireUser, async (req, res) => {
     }
 
     const fromKey = balanceKey(from);
-
-    // balance check + escrow deduction
-    const userDoc = await db.collection("users").doc(userId).get();
-    if (!userDoc.exists) return res.status(404).json({ error: "User not found" });
-
-    const userData = userDoc.data() || {};
-    const fromBal = userData[fromKey] ?? (from === "USDT" ? userData.balance || 0 : 0);
-
-    if (amt > fromBal) {
-      return res.status(400).json({ error: `Insufficient ${from} balance` });
-    }
-
-    await db.collection("users").doc(userId).set({
-      [fromKey]: FieldValue.increment(-amt)
-    }, { merge: true });
-
     const hashKey = generateHashKey();
+    const userRef = db.collection("users").doc(userId);
+    const swapRef = db.collection("swaps").doc();
 
-    const doc = await db.collection("swaps").add({
-      userId,
-      userEmail,
-      fromCurrency: from,
-      toCurrency: to,
-      fromAmount: amt,
-      toAmount,
-      fromPriceUsd: fromPrice,
-      toPriceUsd: toPrice,
-      amountToPay: Number((amt * fromPrice).toFixed(2)),
-      walletId: walletId || "",
-      hashKey,
-      status: "pending",
-      createdAt: new Date(),
-      updatedAt: new Date()
+    // Balance check + escrow deduction + record creation — EK transaction me.
+    //
+    // Pehle ye teen alag steps the: (1) balance padho, (2) balance decrement
+    // karo, (3) `collection.add()` se record banao. Beech me crash ya network
+    // error ho to paisa DEDUCT ho chuka hota par koi record nahi banta — matlab
+    // user ka paisa permanently gaya aur admin ke paas approve/refund karne ke
+    // liye kuch hi nahi hota. Transaction se ye ho nahi sakta: teenon ya sab
+    // lagenge, ya koi nahi.
+    const created = await db.runTransaction(async (tx) => {
+      const userDoc = await tx.get(userRef);
+      if (!userDoc.exists) return { code: 404, error: "User not found" };
+
+      // coinBalance() legacy "USDTBalance" ko bhi jodta hai. Pehle yahan seedha
+      // `userData[fromKey]` padha jaa raha tha, jisse legacy balance wale user
+      // ko "Insufficient balance" milta tha jabki uske paas paisa hota tha.
+      const fromBal = coinBalance(userDoc.data() || {}, from);
+
+      if (amt > fromBal) {
+        return { code: 400, error: `Insufficient ${from} balance`, available: fromBal };
+      }
+
+      tx.update(userRef, { [fromKey]: FieldValue.increment(-amt) });
+      tx.create(swapRef, {
+        userId,
+        userEmail,
+        fromCurrency: from,
+        toCurrency: to,
+        fromAmount: amt,
+        toAmount,
+        fromPriceUsd: fromPrice,
+        toPriceUsd: toPrice,
+        amountToPay: Number((amt * fromPrice).toFixed(2)),
+        walletId: walletId || "",
+        hashKey,
+        status: "pending",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      return { id: swapRef.id };
     });
+
+    if (created.error) {
+      return res.status(created.code).json({ error: created.error, available: created.available });
+    }
 
     return res.json({
       success: true,
-      id: doc.id,
+      id: created.id,
       message: `Swap request submitted: ${amt} ${from} → ${toAmount} ${to}. Credited after admin approval.`,
       hashKey,
       fromAmount: amt,

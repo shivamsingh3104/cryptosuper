@@ -92,6 +92,10 @@ export default function AssetsPage() {
     usdValue: (allBalances[c.field] || 0) * (prices[c.id]?.usd || 0),
   }));
   const totalUsdValue = usdBalance + assets.reduce((sum, a) => sum + a.usdValue, 0);
+  // Live BTC price — pehle yahan `/ 80000` hardcode tha, isliye ye line real BTC
+  // price ke upar/down hone par bhi galat rehti. `prices` upar CoinGecko se aata
+  // hai, isliye usi ka istemal karte hain.
+  const btcPrice = prices.bitcoin?.usd || 0;
   const bal = hideBalance ? "***" : totalUsdValue.toFixed(2);
   const hasAssets = assets.filter(a => a.amount > 0).length > 0;
 
@@ -117,15 +121,12 @@ export default function AssetsPage() {
         </div>
 
         <div style={s.totalUsd}>{loading ? "Loading..." : `${bal} USD`}</div>
-        <div style={s.totalBtc}>≈ {hideBalance || loading ? "***" : (totalUsdValue / 80000).toFixed(4)} BTC</div>
+        <div style={s.totalBtc}>≈ {hideBalance || loading || !totalUsdValue || !btcPrice ? "***" : (totalUsdValue / btcPrice).toFixed(6)} BTC</div>
         <p style={s.disclaimer}>*Data may be delayed. <span style={{color:'#2563eb',cursor:'pointer',textDecoration:'underline'}} onClick={refetch}>Refresh</span></p>
 
         <div style={s.actionRow}>
-          <button style={s.actionBtn} onClick={() => navigate("/profile/wallet?action=deposit")}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Deposit
-          </button>
-          <button style={s.actionBtn}>
+          {/* Deposit button hata diya — admin hi wallet me credit karta hai. */}
+          <button style={s.actionBtn} onClick={() => navigate("/profile/wallet")}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             Withdraw
           </button>

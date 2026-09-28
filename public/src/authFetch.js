@@ -27,7 +27,23 @@ window.fetch = async function (input, init = {}) {
       const adminToken = localStorage.getItem("adminToken");
       if (adminToken) {
         const h = { ...(init.headers || {}), "x-admin-token": adminToken };
-        return nativeFetch(input, { ...init, headers: h });
+        return nativeFetch(input, { ...init, headers: h }).then((res) => {
+          // Server restart hone par token invalid ho jata hai (server me token
+          // memory me hota hai). Purana token bhejne se har page chup-chaap
+          // empty data dikhata tha, isliye ab seedha login screen par bhejte hain.
+          //
+          // localStorage saaf karna kaafi nahi — jo component already mounted hai
+          // wo re-render nahi hota, user ko khali tables dikhte rehte hain.
+          // Isliye ek event bhi bhejte hain jise AdminDashboard sunta hai.
+          if (res.status === 401) {
+            localStorage.removeItem("adminToken");
+            localStorage.removeItem("adminAuth");
+            try {
+              window.dispatchEvent(new Event("kepwix:admin-session-expired"));
+            } catch { /* ignore */ }
+          }
+          return res;
+        });
       }
     }
 

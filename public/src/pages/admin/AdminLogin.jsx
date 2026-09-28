@@ -77,7 +77,7 @@ export default function AdminLogin({ onLogin }) {
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder={ADMIN_EMAIL}
+              placeholder={process.env.REACT_APP_ADMIN_EMAIL || "admin@example.com"}
               className="adm-input"
               autoFocus
             />

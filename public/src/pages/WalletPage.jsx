@@ -1,8 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
   Search,
-  ArrowDownToLine,
   ArrowUpFromLine,
   Repeat,
   Menu,
@@ -10,17 +9,15 @@ import {
   Camera,
   ChevronRight,
 } from "lucide-react";
-import QRCode from "qrcode";
 import { useAuth } from "../context/AuthContext";
 import { API } from "../config/api";
+import { fmtDate } from "../utils/date";
 
 
 
 export default function WalletDashboard() {
   const { user, isLoggedIn } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const action = searchParams.get("action");
 
   const [coins, setCoins] = useState([]);
   const [filteredCoins, setFilteredCoins] = useState([]);
@@ -28,18 +25,9 @@ export default function WalletDashboard() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
 
-  const [showDeposit, setShowDeposit] = useState(action === "deposit");
-  const [depositStep, setDepositStep] = useState(1);
-  const [selectedCoin, setSelectedCoin] = useState(null);
+  // Deposit flow hata diya gaya hai — paisa sirf admin wallet me daalta hai.
   const [coinSearch, setCoinSearch] = useState("");
-  const [addressType, setAddressType] = useState("");
-  const [depositAddress, setDepositAddress] = useState("");
-  const [qrDataUrl, setQrDataUrl] = useState("");
-  const [showQr, setShowQr] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [depositAmount, setDepositAmount] = useState("");
-  const [txHash, setTxHash] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState(null);
 
   // ── Withdrawal state ──
@@ -60,6 +48,22 @@ export default function WalletDashboard() {
     if (specific !== undefined && specific !== null) return specific;
     return 0;
   };
+
+  // Pending withdrawal ka amount — balance nahi badla, par woh coins
+  // "reserved" hain jab tak admin approve/reject nahi karta.
+  const getPendingHold = (symbol) => {
+    if (!symbol) return 0;
+    const s = symbol.toUpperCase();
+    const list = rawBalances.pendingHolds || [];
+    return list.find(h => h.coin === s)?.amount || 0;
+  };
+
+  // Jo user sach me naya withdraw kar sakta hai.
+  const getAvailableBalance = (symbol) => {
+    const total = getCoinBalance(symbol);
+    return Math.max(0, total - getPendingHold(symbol));
+  };
+
   const videoRef = useRef(null);
 
   const [userBalance, setUserBalance] = useState(null);
@@ -77,7 +81,6 @@ export default function WalletDashboard() {
         setUserBalance(typeof d.balance === "number" ? d.balance : 0);
         setBtcBalance(typeof d.BTCBalance === "number" ? d.BTCBalance : 0);
         setEthBalance(typeof d.ETHBalance === "number" ? d.ETHBalance : 0);
-        console.log("BALANCE RAW:", d);
       })
       .catch(() => {})
       .finally(() => { if (showLoading) setBalanceLoading(false); });
@@ -91,23 +94,30 @@ export default function WalletDashboard() {
     return () => clearInterval(interval);
   }, [fetchBalance]);
 
+  // ── Pending requests ──
+  // Deposit/withdrawal submit karne par balance abhi nahi hila. Ye list batati
+  // hai ki kitne requests admin ke approval ka intezaar kar rahe hain.
+  const [pendingRequests, setPendingRequests] = useState([]);
+
+  const fetchPending = useCallback(() => {
+    if (!user?.uid) { setPendingRequests([]); return; }
+    fetch(`${API}/api/transactions/user/${user.uid}`)
+      .then(r => r.json())
+      .then(data => {
+        const list = (Array.isArray(data) ? data : []).filter(
+          t => t.status === "pending" && (t.type === "deposit" || t.type === "withdrawal")
+        );
+        setPendingRequests(list);
+      })
+      .catch(() => {});
+  }, [user?.uid]);
+
   useEffect(() => {
-    if (action === "deposit") { setShowDeposit(true); setDepositStep(1); }
-  }, [action]);
-
-  const openDepositModal = (coin) => {
-    setSelectedCoin(coin);
-    setDepositStep(coin ? 2 : 1);
-    setCoinSearch("");
-    setTxHash("");
-    setShowDeposit(true);
-    navigate("/profile/wallet?action=deposit", { replace: true });
-  };
-
-  const closeDeposit = () => {
-    setShowDeposit(false); setDepositStep(1); setSelectedCoin(null);
-    navigate("/profile/wallet", { replace: true });
-  };
+    fetchPending();
+    if (!user?.uid) return;
+    const interval = setInterval(fetchPending, 5000);
+    return () => clearInterval(interval);
+  }, [fetchPending]);
 
   // ── Withdrawal functions ──
   const openWithdrawModal = (coin) => {
@@ -123,8 +133,6 @@ export default function WalletDashboard() {
     setWithdrawAddrType("");
     setCoinSearch("");
     setShowWithdraw(true);
-    setShowDeposit(false);
-    console.log("openWithdrawModal called, showWithdraw set to true");
   };
 
   const closeWithdraw = () => {
@@ -141,8 +149,16 @@ export default function WalletDashboard() {
     if (!withdrawAddrType) return setMsg("Select an address type");
     if (!withdrawAddress) return setMsg("Enter withdrawal address");
     if (!withdrawAmount || Number(withdrawAmount) <= 0) return setMsg("Enter a valid amount");
-    const bal = getCoinBalance(selectedWithdrawCoin.symbol);
-    if (Number(withdrawAmount) > bal) return setMsg("Insufficient balance");
+
+    // Available, na ki raw balance — pending request wale coins reserved hain.
+    const bal = getAvailableBalance(selectedWithdrawCoin.symbol);
+    const held = getPendingHold(selectedWithdrawCoin.symbol);
+    if (Number(withdrawAmount) > bal) {
+      return setMsg(held > 0
+        ? `Only ${bal} ${selectedWithdrawCoin.symbol} available — ${held} is pending approval`
+        : "Insufficient balance");
+    }
+
     setWithdrawSubmitting(true);
     try {
       const res = await fetch(`${API}/api/transactions/withdraw`, {
@@ -159,9 +175,9 @@ export default function WalletDashboard() {
       });
       const data = await res.json();
       if (data.success) {
-        setMsg("Withdrawal request submitted! Awaiting admin approval.");
+        setMsg("Request submitted. Balance is deducted only after admin approval.");
         fetchBalance();
-        setTimeout(() => { setMsg(null); closeWithdraw(); }, 3000);
+        setTimeout(() => { setMsg(null); closeWithdraw(); }, 3500);
       } else {
         setMsg(data.error || "Submission failed");
       }
@@ -195,120 +211,74 @@ export default function WalletDashboard() {
       .catch(e => console.error("WALLETS FETCH ERROR:", e));
   }, []);
 
-  useEffect(() => {
-    if (!addressType) { setDepositAddress(""); return; }
-    const found = wallets.find(w => {
-      const name = (w.walletName || w.name || "").toUpperCase();
-      return name.includes(addressType);
-    });
-    if (found) setDepositAddress(found.walletAddress || found.address || "");
-    else setDepositAddress("");
-  }, [addressType, wallets]);
-
-  const filteredWallets = selectedCoin
-    ? wallets.filter(w => {
-        const name = (w.walletName || w.name || "").toUpperCase();
-        const sym = selectedCoin.symbol.toUpperCase();
-        return name.includes(sym);
-      })
-    : [];
-
-  useEffect(() => {
-    if (showQr && depositAddress) {
-      QRCode.toDataURL(depositAddress, { width: 200, margin: 2 })
-        .then(url => setQrDataUrl(url))
-        .catch(() => {});
-    }
-  }, [showQr, depositAddress]);
-
-  const handleDepositSubmit = async () => {
-    if (!isLoggedIn || !selectedCoin) return;
-    if (!addressType) return setMsg("Select an address type first");
-    if (!depositAddress) return setMsg("No deposit address available");
-    if (!depositAmount || Number(depositAmount) <= 0) return setMsg("Enter a valid deposit amount");
-    setShowQr(true);
-  };
-
-  const handleSubmitDepositRequest = async () => {
-    if (!isLoggedIn || !selectedCoin || !depositAddress || !depositAmount) return;
-    setSubmitting(true);
-    const usdAmount = Number(depositAmount);
-    const coinPrice = selectedCoin.current_price || 1;
-    const coinAmount = selectedCoin.symbol.toUpperCase() === "USDT" ? usdAmount : usdAmount / coinPrice;
-    const bodyData = {
-      userId: user.uid,
-      userEmail: user.email || "",
-      amount: coinAmount,
-      usdAmount: usdAmount,
-      currency: "USD",
-      coin: selectedCoin.symbol.toUpperCase(),
-      method: addressType,
-      type: "crypto",
-      walletAddress: depositAddress,
-      txHash: txHash || ""
-    };
-    console.log("DEPOSIT REQUEST:", bodyData);
-    try {
-      const res = await fetch(`${API}/api/transactions/deposit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(bodyData)
-      });
-      const data = await res.json();
-      if (data.success) {
-        setMsg("Deposit request submitted! Balance will be credited after admin approval.");
-        setTimeout(() => { setMsg(null); closeDeposit(); }, 4000);
-      } else {
-        setMsg(data.error || "Submission failed");
-      }
-    } catch (e) {
-      setMsg("Network error. Try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const copyAddress = () => {
-    navigator.clipboard.writeText(depositAddress);
-    setMsg("Address copied!");
-    setTimeout(() => setMsg(null), 2000);
-  };
 
   // ── Coin fetching ──
+  //
+  // Pehle ye browser se seedha CoinGecko (`per_page=250`) call karta tha. Free
+  // tier ise rate-limit karta hai, aur call fail hone par `coins` khaali reh
+  // jata tha — jiski wajah se `filteredCoins` bhi khaali ho jata tha aur user
+  // ka BALANCE hi render nahi hota tha, jabki balance API se aa raha tha. Yaani
+  // price feed fail hone se user ko apna paisa invisible dikhta tha.
+  //
+  // Ab price server ke cached proxy (/api/prices) se aati hai, aur list hamesha
+  // backend ke supported-coins registry se banti hai. Price na mile to row
+  // phir bhi render hoti hai, price sirf "—" dikhta hai.
   const fetchCoins = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch(
-        `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=${page}&sparkline=false`
-      );
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setCoins((prev) => {
-          const existing = new Map(prev.map(c => [c.id, c]));
-          data.forEach(c => { if (!existing.has(c.id)) existing.set(c.id, c); });
-          return [...existing.values()];
-        });
-      }
-    } catch (err) { console.log(err); }
-    finally { setLoading(false); }
+      const res = await fetch(`${API}/api/prices`);
+      const json = await res.json();
+      const prices = json?.prices || {};
+      setCoins((prev) => {
+        const existing = new Map(prev.map((c) => [c.id, c]));
+        for (const [id, p] of Object.entries(prices)) {
+          existing.set(id, { ...existing.get(id), ...p });
+        }
+        return [...existing.values()];
+      });
+    } catch (err) {
+      console.log("price fetch failed, list will still render from registry:", err);
+    } finally {
+      setLoading(false);
+    }
   }, [page]);
 
   useEffect(() => { fetchCoins(); }, [fetchCoins]);
 
+  // Registry se list banao. Price data aane tak bhi rows render hongi, sirf
+  // price/naam/image "—" rahenge. Isse balance kabhi invisible nahi hota.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API}/api/supported-coins`)
+      .then((r) => r.json())
+      .then((list) => {
+        if (cancelled || !Array.isArray(list)) return;
+        setCoins((prev) => {
+          const byId = new Map(prev.map((c) => [c.id, c]));
+          // Registry order (BTC, ETH, USDT, ...) + uske baad extra listed coins.
+          list.forEach(({ id, symbol }) => {
+            const hit = prev.find((c) => (c.symbol || "").toUpperCase() === symbol);
+            byId.set(id, { ...(hit || {}), id, symbol, name: hit?.name || symbol, image: hit?.image });
+          });
+          return [...byId.values()];
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     const filtered = coins.filter(
       (coin) =>
-        coin.name.toLowerCase().includes(search.toLowerCase()) ||
-        coin.symbol.toLowerCase().includes(search.toLowerCase())
+        (coin.name || "").toLowerCase().includes(search.toLowerCase()) ||
+        (coin.symbol || "").toLowerCase().includes(search.toLowerCase())
     );
     setFilteredCoins(filtered);
   }, [coins, search]);
 
-  const handleScroll = (e) => {
-    const bottom = e.target.scrollHeight - e.target.scrollTop <= e.target.clientHeight + 200;
-    if (bottom && !loading) setPage((prev) => prev + 1);
-  };
+  const handleScroll = () => {};
 
+  // Withdraw modal me coin list — search box se filter hoti hai.
   const depositCoins = filteredCoins.filter(c =>
     !coinSearch || c.name.toLowerCase().includes(coinSearch.toLowerCase()) || c.symbol.toLowerCase().includes(coinSearch.toLowerCase())
   );
@@ -319,6 +289,13 @@ export default function WalletDashboard() {
     const bal = getCoinBalance(coin.symbol);
     return sum + bal * (coin.current_price || 0);
   }, 0);
+
+  // BTC me portfolio ka approx value. Pehle yahan `portfolioTotalUsd / 80000`
+  // likha tha — matlab BTC ka price hardcode 80,000 tha. Usse real BTC price
+  // move hone par bhi ye line galat rehti, aur BTC price load na ho to seedha
+  // 0/80000 = 0.0000 dikhta. Ab live price use karte hain, warna number hi
+  // nahi dikhate.
+  const btcPrice = coins.find((c) => c.symbol.toUpperCase() === "BTC")?.current_price || 0;
 
   return (
     <div className="min-h-screen bg-[#f6f8fb] p-3 sm:p-4 lg:p-6">
@@ -336,17 +313,16 @@ export default function WalletDashboard() {
             <div>
               <p className="text-gray-500 text-xs sm:text-sm">Assets Overview</p>
               <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold mt-1">{balanceLoading ? "—" : portfolioTotalUsd.toFixed(2)} USD</h1>
-              <p className="text-gray-400 text-sm mt-1">≈ {balanceLoading || !portfolioTotalUsd ? "—" : (portfolioTotalUsd / 80000).toFixed(4)} BTC</p>
+              <p className="text-gray-400 text-sm mt-1">
+                ≈ {balanceLoading || !portfolioTotalUsd || !btcPrice
+                  ? "—"
+                  : (portfolioTotalUsd / btcPrice).toFixed(6)}{" "}
+                BTC
+              </p>
 
             </div>
             <div className="flex flex-wrap gap-2">
-              <button
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 sm:px-5 py-2.5 rounded-xl flex items-center gap-2 text-sm font-medium"
-                onClick={() => openDepositModal(null)}
-              >
-                <ArrowDownToLine size={16} />
-                Deposit
-              </button>
+              {/* Deposit button hata diya — admin hi wallet me credit karta hai. */}
               <button className="border border-gray-300 px-4 sm:px-5 py-2.5 rounded-xl hover:bg-gray-100 text-sm font-medium" onClick={() => navigate("/swap")}>
                 Swap
               </button>
@@ -360,6 +336,49 @@ export default function WalletDashboard() {
             </div>
           </div>
         </div>
+
+        {/* PENDING REQUESTS */}
+        {pendingRequests.length > 0 && (
+          <div className="bg-amber-50 rounded-2xl border border-amber-200 p-4 sm:p-5 mt-5">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="inline-flex h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+              <h2 className="text-sm font-bold text-amber-900">
+                {pendingRequests.length} request{pendingRequests.length > 1 ? "s" : ""} awaiting approval
+              </h2>
+            </div>
+            <p className="text-xs text-amber-700 mb-3">
+              Balance tabhi change hota hai jab admin approve karta hai. Withdrawal ka amount
+              approve tak reserve rehta hai.
+            </p>
+            <div className="space-y-2">
+              {pendingRequests.map(r => (
+                <div
+                  key={`${r.type}-${r.id}`}
+                  className="flex items-center justify-between gap-3 bg-white rounded-xl border border-amber-200 px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-gray-800">
+                      {r.type === "deposit" ? "Deposit" : "Withdrawal"} · {r.coin || "USDT"}
+                    </div>
+                    <div className="text-[11px] text-gray-500 truncate">
+                      {r.type === "deposit"
+                        ? `Awaiting credit · ${fmtDate(r.createdAt)}`
+                        : `To ${r.walletAddress?.slice(0, 14)}… · ${fmtDate(r.createdAt)}`}
+                    </div>
+                  </div>
+                  <div
+                    className={`text-xs font-bold whitespace-nowrap ${
+                      r.type === "deposit" ? "text-emerald-600" : "text-amber-700"
+                    }`}
+                  >
+                    {r.type === "deposit" ? "+" : "−"}
+                    {Number(r.amount).toLocaleString()} {r.coin || "USDT"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* SEARCH */}
         <div className="flex justify-between items-center mt-5 gap-3">
@@ -400,7 +419,7 @@ export default function WalletDashboard() {
                 <div className="md:hidden">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <img src={coin.image} alt={coin.name} className="w-10 h-10 rounded-full" />
+                      <img src={coin.image || ""} alt={coin.name} className="w-10 h-10 rounded-full" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }} />
                       <div>
                         <h3 className="font-semibold text-sm uppercase">{coin.symbol}</h3>
                         <p className="text-xs text-gray-500">{coin.name}</p>
@@ -414,16 +433,15 @@ export default function WalletDashboard() {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3 mt-4 text-xs">
+                    <div>
+                      <p className="text-gray-400">Your balance</p>
+                      <p className="font-semibold mt-1">{getCoinBalance(coin.symbol).toFixed(4)} {coin.symbol.toUpperCase()}</p>
+                    </div>
                     <div><p className="text-gray-400">Market Cap</p><p className="font-medium mt-1">${coin.market_cap?.toLocaleString()}</p></div>
                     <div><p className="text-gray-400">Volume</p><p className="font-medium mt-1">${coin.total_volume?.toLocaleString()}</p></div>
                   </div>
                   <div className="flex gap-2 mt-4">
-                    <button
-                      className="flex-1 border border-gray-300 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1 hover:bg-gray-100"
-                      onClick={() => openDepositModal(coin)}
-                    >
-                      <ArrowDownToLine size={14} /> Deposit
-                    </button>
+                    {/* Deposit button hata diya — admin hi credit karta hai. */}
                     <button className="flex-1 border border-gray-300 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1 hover:bg-gray-100" onClick={() => navigate("/swap")}>
                       <Repeat size={14} /> Swap
                     </button>
@@ -436,23 +454,25 @@ export default function WalletDashboard() {
                 {/* DESKTOP */}
                 <div className="hidden md:grid grid-cols-6 gap-4 items-center">
                   <div className="flex items-center gap-3">
-                    <img src={coin.image} alt={coin.name} className="w-10 h-10 rounded-full" />
+                    <img src={coin.image || ""} alt={coin.name} className="w-10 h-10 rounded-full" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }} />
                     <div>
                       <h3 className="font-semibold text-sm uppercase">{coin.symbol}</h3>
                       <p className="text-xs text-gray-500">{coin.name}</p>
                     </div>
                   </div>
+                  {/* myamoto.com reference layout: Overall / Main / Trade / Collateral.
+                      Chaaron abhi ek hi stored balance dikhate hain, kyunki
+                      backend me per coin sirf EK field hai (balance /
+                      BTCBalance). Ye sirf display hai — paisa kahin nahi gaya,
+                      Transfer bhi overall balance ko nahi chhedta. Asli alag
+                      sub-wallet storage chahiye to ye chaaron columns alag
+                      fields se aane chahiye. */}
                   <div className="text-sm font-semibold">{getCoinBalance(coin.symbol).toFixed(4)} {coin.symbol.toUpperCase()}</div>
                   <div className="text-sm font-semibold">{getCoinBalance(coin.symbol).toFixed(4)} {coin.symbol.toUpperCase()}</div>
-                  <div className="text-sm text-gray-700">0.00 {coin.symbol.toUpperCase()}</div>
-                  <div className="text-sm text-gray-700">0.00 {coin.symbol.toUpperCase()}</div>
+                  <div className="text-sm text-gray-700">{getCoinBalance(coin.symbol).toFixed(4)} {coin.symbol.toUpperCase()}</div>
+                  <div className="text-sm text-gray-700">{getCoinBalance(coin.symbol).toFixed(4)} {coin.symbol.toUpperCase()}</div>
                   <div className="flex justify-end gap-2">
-                    <button
-                      className="border border-gray-300 px-3 py-2 rounded-lg text-xs hover:bg-gray-100 flex items-center gap-1"
-                      onClick={() => openDepositModal(coin)}
-                    >
-                      <ArrowDownToLine size={14} /> Deposit
-                    </button>
+                    {/* Deposit button hata diya — admin hi credit karta hai. */}
                     <button className="border border-gray-300 px-3 py-2 rounded-lg text-xs hover:bg-gray-100 flex items-center gap-1" onClick={() => navigate("/swap")}>
                       <Repeat size={14} /> Swap
                     </button>
@@ -468,171 +488,7 @@ export default function WalletDashboard() {
         </div>
       </div>
 
-      {/* ════════════════════════════════════════
-          DEPOSIT MODAL (Tailwind)
-          ════════════════════════════════════════ */}
-      {showDeposit && (
-        <div
-          className="fixed inset-0 bg-black/50 z-[99999] flex items-center justify-center p-4"
-          onClick={closeDeposit}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="p-5 sm:p-6">
-              {/* Header */}
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold text-gray-900">Deposit Crypto</h2>
-                <button onClick={closeDeposit} className="text-gray-400 hover:text-gray-600">
-                  <X size={20} />
-                </button>
-              </div>
-
-              {/* Two-column layout */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* LEFT: Coin Selection */}
-                <div className="border-r border-gray-200 pr-6">
-                  <p className="text-sm font-semibold text-gray-700 mb-3">Select Coin</p>
-                  <div className="relative mb-4">
-                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input
-                      className="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Search coin..."
-                      value={coinSearch}
-                      onChange={e => setCoinSearch(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {depositCoins.map(c => (
-                      <div
-                        key={c.id}
-                        className={`flex items-center gap-3 p-3 border rounded-xl cursor-pointer transition ${
-                          selectedCoin?.id === c.id ? "border-blue-500 bg-blue-50" : "border-gray-100 hover:border-blue-300 hover:bg-gray-50"
-                        }`}
-                        onClick={() => { setSelectedCoin(c); setCoinSearch(""); setShowQr(false); setDepositAmount(""); setAddressType(""); }}
-                      >
-                        <img src={c.image} alt={c.name} className="w-8 h-8 rounded-full" />
-                        <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-sm text-gray-900 uppercase">{c.symbol}</div>
-                          <div className="text-xs text-gray-500 truncate">{c.name}</div>
-                        </div>
-                        <div className="text-xs font-semibold text-gray-700">${c.current_price?.toLocaleString()}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* RIGHT: Deposit Details */}
-                <div>
-                  {selectedCoin ? (
-                    <>
-                      <div className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl mb-4">
-                        <img src={selectedCoin.image} alt={selectedCoin.name} className="w-8 h-8 rounded-full" />
-                        <div>
-                          <div className="font-bold text-sm text-gray-900 uppercase">{selectedCoin.symbol}</div>
-                          <div className="text-xs text-gray-500">{selectedCoin.name}</div>
-                        </div>
-                        <div className="ml-auto text-sm font-semibold text-gray-700">${selectedCoin.current_price?.toLocaleString()}</div>
-                      </div>
-
-                      {/* Coin-specific Balance */}
-                      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
-                        <p className="text-xs text-blue-600 font-semibold uppercase">Your {selectedCoin.symbol.toUpperCase()} Balance</p>
-                        <p className="text-2xl font-bold text-blue-700 mt-1">{getCoinBalance(selectedCoin.symbol).toFixed(6)} {selectedCoin.symbol.toUpperCase()}</p>
-                      </div>
-
-                      {/* Amount (USD) */}
-                      <div className="mb-4">
-                        <label className="block text-xs font-semibold text-gray-700 mb-1.5">Amount (USD)</label>
-                        <input
-                          type="number"
-                          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="0.00"
-                          value={depositAmount}
-                          onChange={e => setDepositAmount(e.target.value)}
-                        />
-                        {depositAmount > 0 && selectedCoin?.current_price > 0 && (
-                          <p className="text-xs text-gray-400 mt-1">
-                            ≈ {(Number(depositAmount) / selectedCoin.current_price).toFixed(8)} {selectedCoin.symbol.toUpperCase()}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Address Type */}
-                      <div className="mb-4">
-                        <label className="block text-xs font-semibold text-gray-700 mb-1.5">Select Address Type</label>
-                        {filteredWallets.length === 0 ? (
-                          <p className="text-sm text-red-500">No wallet address available for this coin. Contact admin.</p>
-                        ) : (
-                          <div className="space-y-1.5 max-h-24 overflow-y-auto">
-                            {filteredWallets.map(w => {
-                              const netName = (w.walletName || w.name || "").toUpperCase();
-                              return (
-                                <div
-                                  key={w.id}
-                                  className={`flex items-center gap-3 p-3 border rounded-xl cursor-pointer transition ${
-                                    addressType === netName ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-blue-300"
-                                  }`}
-                                  onClick={() => { setAddressType(netName); setShowQr(false); }}
-                                >
-                                  <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-600">
-                                    {netName}
-                                  </div>
-                                  <div>
-                                    <div className="font-semibold text-sm text-gray-900">{w.walletName || w.name}</div>
-                                    <div className="text-xs text-gray-500">Deposit via {netName}</div>
-                                  </div>
-                                  {addressType === netName && <span className="ml-auto text-blue-600 font-bold text-lg">✓</span>}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Deposit Address + QR + Actions */}
-                      {showQr && depositAddress ? (
-                        <div className="mb-4 space-y-3">
-                          {qrDataUrl && (
-                            <div className="flex justify-center">
-                              <img src={qrDataUrl} alt="QR Code" className="w-36 h-36" />
-                            </div>
-                          )}
-                          <div>
-                            <label className="block text-xs font-semibold text-gray-700 mb-1.5">Deposit Address ({addressType})</label>
-                            <div className="flex items-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-xl">
-                              <code className="flex-1 text-xs font-mono break-all select-all">{depositAddress}</code>
-                              <button onClick={copyAddress} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="Copy">
-                                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-                                </svg>
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      ) : null}
-
-                      <button
-                        className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl text-sm font-bold mt-4"
-                        onClick={handleSubmitDepositRequest}
-                        disabled={submitting}
-                      >
-                        {submitting ? "Submitting..." : "Submit Deposit"}
-                      </button>
-                    </>
-                  ) : (
-                    <div className="flex items-center justify-center h-full min-h-[300px] text-gray-400 text-sm">
-                      Select a coin from the left to start depositing
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* WITHDRAW MODAL */}
       {showWithdraw && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:99999,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={closeWithdraw}>
           <div style={{background:'white',borderRadius:16,padding:24,maxWidth:1000,width:'100%',maxHeight:'90vh',overflowY:'auto'}} onClick={e => e.stopPropagation()}>
@@ -673,7 +529,12 @@ export default function WalletDashboard() {
                     </div>
                     <div style={{background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:8,padding:16,marginBottom:16}}>
                       <p style={{fontSize:11,fontWeight:600,color:'#2563eb',margin:0}}>Available Balance</p>
-                      <p style={{fontSize:20,fontWeight:'bold',color:'#1d4ed8',marginTop:4,cursor:'pointer',margin:0}} onClick={() => setWithdrawAmount(getCoinBalance(selectedWithdrawCoin.symbol).toString())}>{getCoinBalance(selectedWithdrawCoin.symbol).toFixed(4)} {selectedWithdrawCoin.symbol?.toUpperCase()}</p>
+                      <p style={{fontSize:20,fontWeight:'bold',color:'#1d4ed8',marginTop:4,cursor:'pointer',margin:0}} onClick={() => setWithdrawAmount(getAvailableBalance(selectedWithdrawCoin.symbol).toString())}>{getAvailableBalance(selectedWithdrawCoin.symbol).toFixed(4)} {selectedWithdrawCoin.symbol?.toUpperCase()}</p>
+                      {getPendingHold(selectedWithdrawCoin.symbol) > 0 && (
+                        <p style={{fontSize:11,color:'#b45309',margin:'6px 0 0',fontWeight:600}}>
+                          {getPendingHold(selectedWithdrawCoin.symbol).toFixed(4)} {selectedWithdrawCoin.symbol?.toUpperCase()} pending approval (not deducted yet)
+                        </p>
+                      )}
                     </div>
                     <div style={{marginBottom:12}}>
                       <label style={{fontSize:12,fontWeight:600,marginBottom:4,display:'block',color:'#374151'}}>Amount</label>

@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useCryptoData, fmtPrice } from "../hooks/useCryptoData";
+import useBalances from "../hooks/useBalances";
 import { useAuth } from "../context/AuthContext";
 import { API } from "../config/api";
 
@@ -20,14 +21,66 @@ const ExchangePage = () => {
   const [mySwaps, setMySwaps] = useState([]);
   const [rawBalances, setRawBalances] = useState({});
   const [wallets, setWallets] = useState([]);
+  const localOverride = useRef(false);
 
+  // Balance ab poll + tab-focus par refresh hota hai, aur error alag se
+  // expose hota hai. Pehle ek hi baar fetch hota tha aur failure par page
+  // "0.000000 BTC" dikhata tha — jo galat/galat-confident dikhna hai.
+  const {
+    balances: fetchedBalances,
+    loading: balancesLoading,
+    error: balancesError,
+    refresh: refreshBalances,
+  } = useBalances(user?.uid);
+
+  // Default send coin BTC tha. Zyadatar users ke paas BTC nahi hota (sirf
+  // USDT), to page kholte hi "Available balance: 0 BTC" dikhta tha — jabki
+  // unke paas paisa tha. Ab jab balance load ho jaye, aur current default coin
+  // ke paas kuch nahi hai, to us coin par switch kar dete hain jisme user ke
+  // paas actually balance hai (USDT ko preference).
+  //
+  // Ye sirf EK baar chalta hai (autoPicked ref) — taaki user apna manually
+  // chuna hua coin baad me badal sake.
+  const autoPicked = useRef(false);
   useEffect(() => {
-    if (!user?.uid) return;
-    fetch(`${API}/api/users/balance?uid=${user.uid}`)
-      .then(r => r.json())
-      .then(d => setRawBalances(d || {}))
-      .catch(() => {});
-  }, [user?.uid]);
+    if (autoPicked.current || balancesLoading || !fetchedBalances) return;
+    if (!coins.length) return;
+
+    // USDT ka field lowercase "balance" hota hai, isliye `endsWith("Balance")`
+    // se wo miss ho jata tha — use alag se include karna zaroori hai.
+    const held = Object.keys(fetchedBalances)
+      .filter((k) => k.endsWith("Balance") && k !== "USDTBalance")
+      .map((k) => [k.replace("Balance", "").toUpperCase(), Number(fetchedBalances[k]) || 0])
+      .filter(([, v]) => v > 0);
+    if (Number(fetchedBalances.balance) > 0) held.unshift(["USDT", Number(fetchedBalances.balance)]);
+    if (!held.length) { autoPicked.current = true; return; }
+
+    // Jo coin already chuna hai usme balance hai to haath nahi lagate.
+    const currentSym = coins.find((c) => c.id === sendId)?.symbol?.toUpperCase();
+    const currentHeld =
+      currentSym === "USDT"
+        ? Number(fetchedBalances.balance) > 0
+        : held.some(([s]) => s === currentSym);
+    if (currentHeld) { autoPicked.current = true; return; }
+
+    // Preference: USDT, warna jis coin ki value sabse zyada ho.
+    const pick = held.find(([s]) => s === "USDT")
+      || held.slice().sort((a, b) => b[1] - a[1])[0];
+    const target = coins.find((c) => (c.symbol || "").toUpperCase() === pick[0]);
+    if (target) {
+      autoPicked.current = true;
+      setSendId(target.id);
+      if (target.id === receiveId) setReceiveId(coins.find((c) => c.id !== target.id)?.id || receiveId);
+    }
+  }, [fetchedBalances, balancesLoading, coins, sendId, receiveId]);
+
+
+  // Swap ke baad optimistic local update hota hai (setRawBalances) — usse
+  // turant server value na over-write ho, isliye local state hi rahe aur
+  // agla poll server ko resync kar deta hai.
+  useEffect(() => {
+    if (!localOverride.current) setRawBalances(fetchedBalances);
+  }, [fetchedBalances]);
 
   const getBalance = (symbol) => {
     if (!symbol) return 0;
@@ -40,6 +93,35 @@ const ExchangePage = () => {
 
   const sendCoin = useMemo(() => coins.find((c) => c.id === sendId), [coins, sendId]);
   const receiveCoin = useMemo(() => coins.find((c) => c.id === receiveId), [coins, receiveId]);
+
+  // Balance ki jagah dikhane wala ek hi helper. Pehle JSX me `sendCoin?.name ||
+  // "BTC"` likha tha — jab CoinGecko load nahi hota to sendCoin undefined hota
+  // aur `getBalance(undefined)` 0 return karke screen par ek bilkul legit dikhne
+  // wala "0.000000 BTC" print ho jata tha, jabki user ke paas balance tha ya
+  // balance load hi nahi hua tha. Ab uncertain state me hum "—" ya error
+  // dikhate hain, kabhi galat number nahi.
+  const balanceLabel = (coin) => {
+    if (balancesError) {
+      return (
+        <button
+          type="button"
+          onClick={refreshBalances}
+          style={{ background: "none", border: 0, color: "#dc2626", cursor: "pointer", font: "inherit" }}
+          title="Click to retry"
+        >
+          Balance load nahi hua — retry
+        </button>
+      );
+    }
+    if (!coin) return <span style={{ opacity: 0.5 }}>—</span>;
+    if (balancesLoading) return <span style={{ opacity: 0.5 }}>loading…</span>;
+    const value = getBalance(coin.name);
+    return (
+      <>
+        {value.toLocaleString(undefined, { maximumFractionDigits: 8 })} {coin.name}
+      </>
+    );
+  };
 
   const sendPrice = sendCoin?.lastPrice || 0;
   const receivePrice = receiveCoin?.lastPrice || 0;
@@ -159,10 +241,15 @@ const ExchangePage = () => {
         setStep("success");
         // sirf fromAmount escrow hota hai; toAmount admin approval pe credit hoga
         const fromKey = sendCoin?.name === "USDT" ? "balance" : sendCoin?.name + "Balance";
+        // Turant UI update (optimistic) — agle poll tak local value rahe, warna
+        // pending server state wapas purana balance dikha degi.
+        localOverride.current = true;
         setRawBalances(prev => ({
           ...prev,
           [fromKey]: Math.max(0, (prev[fromKey] || 0) - Number(sendAmount))
         }));
+        // 30s baad override chhod do taaki server value wapas authoritative ho.
+        setTimeout(() => { localOverride.current = false; refreshBalances(); }, 30000);
       } else {
         alert("Error: " + (data.error || "Something went wrong"));
       }
@@ -302,7 +389,15 @@ const ExchangePage = () => {
 
                   <div className="swap-balance-row">
                     <span>Available balance:</span>
-                    <span className="swap-balance-value" style={{cursor:'pointer'}} onClick={() => setSendAmount(getBalance(sendCoin?.name).toString())}>{getBalance(sendCoin?.name).toFixed(6)} {sendCoin?.name || "BTC"}</span>
+                    <span
+                      className="swap-balance-value"
+                      style={{ cursor: sendCoin ? "pointer" : "default" }}
+                      onClick={() => {
+                        if (sendCoin) setSendAmount(getBalance(sendCoin.name).toString());
+                      }}
+                    >
+                      {balanceLabel(sendCoin)}
+                    </span>
                   </div>
 
                   <input
@@ -332,7 +427,7 @@ const ExchangePage = () => {
 
                   <div className="swap-balance-row right">
                     <span>Available balance:</span>
-                    <span className="swap-balance-value">{getBalance(receiveCoin?.name).toFixed(6)} {receiveCoin?.name || "ETH"}</span>
+                    <span className="swap-balance-value">{balanceLabel(receiveCoin)}</span>
                   </div>
 
                   <input

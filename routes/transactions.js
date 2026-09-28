@@ -1,86 +1,33 @@
 import express from "express";
 import { db } from "../config/firebase.js";
 import requireUser from "../middleware/requireUser.js";
+import { normalizeSymbol, isSupported, coinBalance } from "../config/coins.js";
+import { pendingWithdrawalsByCoin } from "../config/holds.js";
 
 const router = express.Router();
 
-// ── DEPOSIT SUBMIT ───────────────────────────────────────────
-// Deposit sirf "pending" record banata hai. Balance tabhi credit hota hai
-// jab admin PUT /api/admin/deposits/:id/approve kare.
-router.post("/submit", requireUser, async (req, res) => {
-  try {
-    const { transactionHash, amount } = req.body;
-    const userId = req.uid;
-    const userEmail = req.email || "";
+// ── DEPOSIT (DISABLED) ────────────────────────────────────────
+// User deposit flow hata diya gaya hai — ab paisa sirf admin wallet me
+// daalta hai (POST /api/admin/credit). Ye endpoints 410 bhejte hain taaki
+// koi purana bundle ya direct call credit na kar sake.
+//
+//   router.post("/submit", ...)   → deposit record
+//   router.post("/deposit", ...)  → deposit record
+//
+// Wapas chahiye to niche wali dono router.post blocks un-comment kar dena.
 
-    if (!amount || !userId) {
-      return res.json({ error: "Amount and userId required" });
-    }
+const DEPOSIT_DISABLED = {
+  error: "Self-deposit is disabled. Funds are credited by admin.",
+  depositDisabled: true,
+};
 
-    const doc = await db.collection("deposits").add({
-      userId,
-      userEmail: userEmail || "",
-      amount: Number(amount),
-      transactionHash: transactionHash || "",
-      coin: "USDT",
-      status: "pending",
-      createdAt: new Date()
-    });
+router.post("/submit", requireUser, (_req, res) => res.status(410).json(DEPOSIT_DISABLED));
+router.post("/deposit", requireUser, (_req, res) => res.status(410).json(DEPOSIT_DISABLED));
 
-    res.json({
-      success: true,
-      id: doc.id,
-      status: "pending",
-      message: "Deposit submitted! Balance will be credited after admin approval."
-    });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── DEPOSIT ──────────────────────────────────────────────────
-// Sirf "pending" record banta hai — koi balance change nahi hota.
-// Credit sirf admin approval par (server.js → /api/admin/deposits/:id/approve).
-router.post("/deposit", requireUser, async (req, res) => {
-  try {
-    const { amount, usdAmount, currency, coin, method, type, walletAddress, txHash } = req.body;
-    const userId = req.uid;
-    const userEmail = req.email || "";
-
-    if (!amount || !userId) {
-      return res.json({ error: "Amount and userId required" });
-    }
-
-    const doc = await db.collection("deposits").add({
-      userId,
-      userEmail: userEmail || "",
-      amount: Number(amount),
-      usdAmount: usdAmount ? Number(usdAmount) : Number(amount),
-      currency: currency || "USD",
-      coin: coin || "USDT",
-      method: method || "",
-      type: type || "fiat",
-      walletAddress: walletAddress || "",
-      txHash: txHash || "",
-      status: "pending",
-      createdAt: new Date()
-    });
-
-    res.json({
-      success: true,
-      id: doc.id,
-      status: "pending",
-      message: "Deposit submitted! Balance will be credited after admin approval."
-    });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
+// ── WITHDRAWAL REQUEST ───────────────────────────────────────
+// Sirf "pending" record banta hai — balance ABHI change nahi hota.
+// Amount admin approval tak reserve (hold) rehta hai, isliye ek hi balance
+// par multiple pending requests nahi ban sakte.
 router.post("/withdraw", requireUser, async (req, res) => {
   try {
     const { amount, walletAddress, coin, method } = req.body;
@@ -88,33 +35,60 @@ router.post("/withdraw", requireUser, async (req, res) => {
     const userEmail = req.email || "";
 
     if (!userId || !amount || !walletAddress) {
-      return res.json({ error: "Missing withdraw details" });
+      return res.status(400).json({ error: "Missing withdraw details" });
+    }
+
+    const symbol = normalizeSymbol(coin || "USDT");
+    if (!isSupported(symbol)) {
+      return res.status(400).json({ error: "Unsupported coin" });
+    }
+
+    const requested = Number(amount);
+    if (!Number.isFinite(requested) || requested <= 0) {
+      return res.status(400).json({ error: "Invalid amount" });
     }
 
     const userDoc = await db.collection("users").doc(userId).get();
-    if (!userDoc.exists) return res.json({ error: "User not found" });
+    if (!userDoc.exists) return res.status(404).json({ error: "User not found" });
 
     const userData = userDoc.data();
-    const coinKey = coin && coin !== "USDT" ? coin + "Balance" : "balance";
-    let currentBalance = userData[coinKey];
-    if (currentBalance === undefined) currentBalance = userData.balance || 0;
+    const total = coinBalance(userData, symbol);
 
-    if (Number(amount) > currentBalance) {
-      return res.json({ error: "Insufficient balance" });
+    const pending = await pendingWithdrawalsByCoin(userId);
+    const held = pending[symbol] || 0;
+    const available = Math.max(0, total - held);
+
+    if (requested > available) {
+      return res.status(409).json({
+        error: held > 0
+          ? `Insufficient available balance. ${held} ${symbol} is already pending approval.`
+          : "Insufficient balance",
+        balance: total,
+        pending: held,
+        available,
+      });
     }
 
-    await db.collection("withdrawals").add({
+    const ref = await db.collection("withdrawals").add({
       userId,
       userEmail: userEmail || "",
-      amount: Number(amount),
+      amount: requested,
       walletAddress,
-      coin: coin || "USDT",
+      coin: symbol,
       method: method || "",
       status: "pending",
+      // Balance is row mutate nahi hua — sirf reserve hua.
+      balanceChanged: false,
       createdAt: new Date()
     });
 
-    res.json({ success: true, message: "Withdraw request submitted. Admin will process it." });
+    res.json({
+      success: true,
+      id: ref.id,
+      status: "pending",
+      availableAfter: Math.max(0, available - requested),
+      message: "Withdrawal request submitted. Balance will be deducted only after admin approval.",
+    });
 
   } catch (err) {
     console.error(err);

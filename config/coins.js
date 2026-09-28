@@ -37,6 +37,26 @@ export function balanceKey(symbol) {
   return s === "USDT" ? "balance" : `${s}Balance`;
 }
 
+// Ek user doc se coin ka balance padhta hai.
+//
+// USDT ke liye do fields chal sakti hain: nayi "balance" aur purani legacy
+// "USDTBalance". Wallet page dono ko jodkar dikhata tha, lekin withdraw aur
+// approve sirf "balance" padhte the — user ko paisa dikhta tha par withdraw
+// "Insufficient balance" fail ho jata tha. Isliye har read yahan se jaata hai.
+export function coinBalance(userData, symbol) {
+  const s = normalizeSymbol(symbol);
+  if (s === "USDT") {
+    return Number(userData?.balance ?? 0) + Number(userData?.USDTBalance ?? 0);
+  }
+  return Number(userData?.[`${s}Balance`] ?? 0);
+}
+
+// Legacy "USDTBalance" kitna bacha hai — approve ke waqt "balance" me migrate
+// kar dete hain taaki balance negative na ho.
+export function legacyUsdt(userData) {
+  return Number(userData?.USDTBalance ?? 0);
+}
+
 export function normalizeSymbol(symbol) {
   return String(symbol || "").trim().toUpperCase();
 }

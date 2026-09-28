@@ -1,3 +1,19 @@
+// ══════════════════════════════════════════════════════════════
+// ⚠️ DISABLED — AB ROUTE SE HATA DIYA GAYA HAI
+//
+// Self-deposit band kar diya gaya hai. Ab paisa sirf admin wallet me
+// daalta hai: admin panel → "Add Money" → POST /api/admin/credit.
+//
+// Ye file abhi bhi disk par hai (history ke liye) lekin:
+//   - App.jsx me iska import nahi hai
+//   - App.jsx me /fiat-deposit route nahi hai
+//   - POST /api/transactions/deposit ab 410 return karta hai
+//
+// Isko dobara activate karna ho to upar wala comment hatao, App.jsx me
+// import + <Route path="/fiat-deposit" …> wapas add karo, aur
+// routes/transactions.js me deposit endpoints un-comment karo.
+// ══════════════════════════════════════════════════════════════
+
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
 import { API } from "../config/api";
@@ -76,7 +92,7 @@ export default function FiatDeposit() {
       const data = await res.json();
       if (data.error) setMsg(data.error);
       else {
-        setMsg(`Deposit request submitted! Awaiting admin approval.`);
+        setMsg(`Request submitted. Balance is credited only after admin approval.`);
         setAmount("");
         fetchHistory();
       }

@@ -19,15 +19,15 @@ export default function Profile() {
     <div className="max-w-5xl mx-auto p-6 md:p-12 min-h-screen bg-gray-50">
       <div className="mb-10 border-b pb-6 text-center md:text-left">
         <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">Official Wallets</h2>
-        <p className="text-gray-500 mt-2">Use these addresses to deposit funds. Then manage everything from your wallet.</p>
+        <p className="text-gray-500 mt-2">Platform wallets. Deposit abhi admin ke through wallet me credit hota hai.</p>
       </div>
 
       <div className="mb-8">
         <button
-          onClick={() => navigate("/profile/wallet?action=deposit")}
+          onClick={() => navigate("/profile/wallet")}
           className="px-8 py-4 bg-blue-600 text-white rounded-2xl font-bold text-sm hover:bg-blue-700 shadow-lg"
         >
-          Go to Wallet → Deposit & Withdraw
+          Go to Wallet
         </button>
       </div>
 
@@ -62,11 +62,11 @@ export default function Profile() {
 
       <div className="mt-10 bg-blue-50 p-6 rounded-3xl border border-blue-100">
         <p className="text-sm text-blue-700 font-medium">
-          After sending funds to any address above, go to your{" "}
-          <button onClick={() => navigate("/profile/wallet?action=deposit")} className="text-blue-600 underline font-bold">
+          Wallet balance aur withdrawal ke liye{" "}
+          <button onClick={() => navigate("/profile/wallet")} className="text-blue-600 underline font-bold">
             Wallet
           </button>{" "}
-          to submit the transaction hash and complete your deposit.
+          kholein. Paise admin wallet me credit karta hai.
         </p>
       </div>
     </div>

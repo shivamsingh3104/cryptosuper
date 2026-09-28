@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { API, headers } from "../../config/api";
+import { fmtDate } from "../../utils/date";
 
 export default function DepositsSection() {
   const [items, setItems] = useState([]);
@@ -75,18 +76,26 @@ export default function DepositsSection() {
               {items.map(item => (
                 <tr key={item.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
                   <td style={{ padding: "0.6rem" }}><div style={{ fontWeight: 600 }}>{item.userEmail || item.userId?.slice(0, 12)}</div></td>
-                  <td style={{ padding: "0.6rem", fontWeight: 700, color: "#059669" }}>${item.amount}</td>
+                  <td style={{ padding: "0.6rem", fontWeight: 700, color: "#059669" }}>
+                    {item.currency && item.currency !== "USD" ? "" : "$"}
+                    {Number(item.amount).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+                    {item.currency && item.currency !== "USD" ? ` ${item.currency}` : ""}
+                  </td>
                   <td style={{ padding: "0.6rem", fontWeight: 600 }}>{item.coin || "USDT"}</td>
                   <td style={{ padding: "0.6rem" }}><code style={{ fontSize: "0.7rem", wordBreak: "break-all" }}>{item.txHash || item.transactionHash || "—"}</code></td>
                   <td style={{ padding: "0.6rem" }}><span style={{ padding: "0.15rem 0.5rem", borderRadius: "1rem", fontSize: "0.7rem", fontWeight: 700, ...statusStyle(item.status) }}>{item.status}</span></td>
-                  <td style={{ padding: "0.6rem", color: "#64748b", fontSize: "0.75rem" }}>{item.createdAt ? new Date(item.createdAt.seconds * 1000 || item.createdAt).toLocaleDateString() : "—"}</td>
+                  <td style={{ padding: "0.6rem", color: "#64748b", fontSize: "0.75rem" }}>{fmtDate(item.createdAt)}</td>
                   <td style={{ padding: "0.6rem" }}>
                     {item.status === "pending" ? (
                       <div style={{ display: "flex", gap: "0.4rem" }}>
                         <button onClick={() => approve(item.id)} style={{ padding: "0.35rem 0.8rem", background: "#059669", color: "white", border: "none", borderRadius: "0.5rem", fontWeight: 600, fontSize: "0.75rem", cursor: "pointer" }}>Approve</button>
                         <button onClick={() => reject(item.id)} style={{ padding: "0.35rem 0.8rem", background: "#dc2626", color: "white", border: "none", borderRadius: "0.5rem", fontWeight: 600, fontSize: "0.75rem", cursor: "pointer" }}>Reject</button>
                       </div>
-                    ) : <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Done</span>}
+                    ) : (
+                      <span style={{ fontSize: "0.75rem", color: "#94a3b8" }}>
+                        {item.processedBy ? `by ${item.processedBy}` : "Done"}
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}

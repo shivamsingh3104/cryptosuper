@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import AdminLogin from "./AdminLogin";
 import UsersSection from "./UsersSection";
 import StatsSection from "./StatsSection";
@@ -10,6 +10,7 @@ import WalletForm from "../../components/WalletForm";
 import SwapSection from "./SwapSection";
 import MarketFeesSection from "./MarketFeesSection";
 import DepositsSection from "./DepositsSection";
+import CreditUserSection from "./CreditUserSection";
 import WithdrawalsSection from "./WithdrawalsSection";
 import StakingRatesSection from "./StakingRatesSection";
 
@@ -31,6 +32,45 @@ export default function AdminDashboard() {
       .then(res => res.json())
       .then(data => setCompany(data))
       .catch(() => {});
+  }, []);
+
+  // Pending counts — admin ko sidebar se hi pata chale ki kitne requests
+  // approve hone baaki hain, warna use har tab manually check karta.
+  const [pendingCounts, setPendingCounts] = useState({ deposits: 0, withdrawals: 0 });
+
+  const fetchPendingCounts = useCallback(() => {
+    const token = localStorage.getItem("adminToken");
+    if (!token) return;
+    const h = { "x-admin-token": token };
+    Promise.all([
+      fetch(`${API}/api/admin/deposits`, { headers: h }).then(r => r.json()).catch(() => []),
+      fetch(`${API}/api/admin/withdrawals`, { headers: h }).then(r => r.json()).catch(() => []),
+    ]).then(([deps, wds]) => {
+      const count = arr => (Array.isArray(arr) ? arr.filter(x => x.status === "pending").length : 0);
+      setPendingCounts({ deposits: count(deps), withdrawals: count(wds) });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!authed) return;
+    fetchPendingCounts();
+    const interval = setInterval(fetchPendingCounts, 10000);
+    return () => clearInterval(interval);
+  }, [authed, fetchPendingCounts]);
+
+  // Ek tab me approve/reject hone par doosre tab ka badge turant stale ho jata
+  // hai, isliye tab badalte hi dobara count karte hain.
+  useEffect(() => {
+    if (authed && (tab === "deposits" || tab === "withdrawals")) fetchPendingCounts();
+  }, [tab, authed, fetchPendingCounts]);
+
+  // authFetch koi /api/admin/ call par 401 de to token hi clear kar deta hai.
+  // Ye state nahi badalta, isliye mounted dashboard khali tables dikhata rehta
+  // tha — event sun ke turant login screen par bhej dete hain.
+  useEffect(() => {
+    const onExpired = () => setAuthed(false);
+    window.addEventListener("kepwix:admin-session-expired", onExpired);
+    return () => window.removeEventListener("kepwix:admin-session-expired", onExpired);
   }, []);
 
   if (!authed) return <AdminLogin onLogin={() => setAuthed(true)} />;
@@ -175,6 +215,17 @@ export default function AdminDashboard() {
           </button>
 
           <button
+            className={`adm-nav-btn${tab === "credit" ? " active" : ""}`}
+            onClick={() => {
+              setTab("credit");
+              setSidebarOpen(false);
+            }}
+          >
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+            Add Money
+          </button>
+
+          <button
             className={`adm-nav-btn${tab === "deposits" ? " active" : ""}`}
             onClick={() => {
               setTab("deposits");
@@ -182,7 +233,10 @@ export default function AdminDashboard() {
             }}
           >
             <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Deposits
+            Deposit History
+            {pendingCounts.deposits > 0 && (
+              <span className="ml-auto adm-pending-badge">{pendingCounts.deposits}</span>
+            )}
           </button>
 
           <button
@@ -194,6 +248,9 @@ export default function AdminDashboard() {
           >
             <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             Withdrawals
+            {pendingCounts.withdrawals > 0 && (
+              <span className="ml-auto adm-pending-badge">{pendingCounts.withdrawals}</span>
+            )}
           </button>
 
           <button
@@ -255,6 +312,7 @@ export default function AdminDashboard() {
         {tab === "swaps" && <SwapSection />}
         {tab === "marketFees" && <MarketFeesSection />}
         {tab === "deposits" && <DepositsSection />}
+        {tab === "credit" && <CreditUserSection />}
         {tab === "withdrawals" && <WithdrawalsSection />}
         {tab === "staking" && <StakingRatesSection />}
       </main>

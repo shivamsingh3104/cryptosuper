@@ -3,9 +3,22 @@ config/serviceAccountKey.json
 
 # Environment variables
 .env
+.env.*
+!.env.example
+# Frontend env files contain REACT_APP_ADMIN_EMAIL / REACT_APP_ADMIN_PASS
+public/.env.development
+public/.env.production
+public/.env.local
+public/.env.*.local
 
 # Node
 node_modules/
+
+# Build output
+public/dist/
+
+# Runtime data (real user emails + session tokens - must never be committed)
+data/
 
 # Uploads (user-generated content)
 uploads/

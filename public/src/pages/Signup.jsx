@@ -7,6 +7,7 @@ import {
   createUserWithEmailAndPassword,
 } from "firebase/auth";
 import { auth } from "../firebase";
+import { authErrorMessage } from "../utils/authErrors";
 import { saveUser } from "../services/userService";
 
 function generateCaptcha() {
@@ -80,7 +81,7 @@ export default function Signup() {
 
       navigate("/login");
     } catch (err) {
-      setError(err?.message || "Signup failed.");
+      setError(authErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -95,7 +96,7 @@ export default function Signup() {
       await saveUser(result.user, "google");
       navigate("/login");
     } catch (err) {
-      setError(err?.message || "Google sign-in failed.");
+      setError(authErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -110,7 +111,7 @@ export default function Signup() {
       await saveUser(result.user, "facebook");
       navigate("/login");
     } catch (err) {
-      setError(err?.message || "Facebook sign-in failed.");
+      setError(authErrorMessage(err));
     } finally {
       setLoading(false);
     }

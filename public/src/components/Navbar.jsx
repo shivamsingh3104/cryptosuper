@@ -26,26 +26,36 @@ const NAV_DROPDOWNS = {
     { icon: "🏦", title: "Crypto Lending", desc: "Earn interest on idle assets", path: "/earn/crypto-lending" },
   ],
   "Buy Crypto": [
-    { icon: "💳", title: "Fiat Deposit", desc: "Buy crypto via Bank Transfer or Card", path: "/profile/wallet?action=deposit" },
+    // Deposit entry point hata diya — paisa ab sirf admin wallet me daalta hai.
     { icon: "🤝", title: "P2P Trading", desc: "Trade with other users", path: "/" },
   ],
-  // Documentation: [
-  //   { icon: "📖", title: "API Docs", desc: "Integrate with our trading API", path: "/" },
-  //   { icon: "❓", title: "Help Center", desc: "Find answers to common questions", path: "/" },
-  // ],
   "Our card": [
     { icon: "🔥", title: "Overview", desc: "Pay with crypto anywhere", path: "/overview" },
+  ],
+  Features: [
+    { icon: "📱", title: "Mobile app", desc: "Trade on the go with iOS & Android", path: "/mobile-app" },
+    { icon: "🎁", title: "Referral program", desc: "Earn rewards for inviting friends", path: "/referral" },
+    { icon: "🛡️", title: "Security", desc: "2FA, anti-phishing and cold storage", path: "/security" },
+    { icon: "🪪", title: "Identity verification", desc: "Complete KYC to raise your limits", path: "/kyc" },
+    { icon: "💻", title: "API management", desc: "Build with the KepWix trading API", path: "/api-management" },
+  ],
+  Documentation: [
+    { icon: "📖", title: "Help center", desc: "Guides and answers to common questions", path: "/" },
+    { icon: "🧩", title: "API docs", desc: "Integrate with our trading API", path: "/" },
+    { icon: "🗺️", title: "What is KepWix?", desc: "Learn about our platform and mission", path: "/about" },
+    { icon: "🚀", title: "Getting started", desc: "Deposit, buy and trade in minutes", path: "/overview" },
   ],
 };
  
 const NAV_ITEMS = [
   { label: "Trading", hasDropdown: true },
-  { label: "Futures", hasDropdown: true },
+  { label: "Features", hasDropdown: true },
   { label: "Tools", hasDropdown: true },
   { label: "Earn", hasDropdown: true },
   { label: "Buy Crypto", hasDropdown: true },
-  // { label: "Documentation", hasDropdown: true },
+  { label: "Futures", hasDropdown: true },
   { label: "Our card", hasDropdown: true },
+  { label: "Documentation", hasDropdown: true },
 ];
  
 // ── Language list ──
@@ -69,7 +79,45 @@ const HISTORY_ITEMS = [
   { label: "Transfers",        path: "/history/transfers" },
   { label: "Earnings",         path: "/history/earnings" },
 ];
+
+// ── Profile menu items ──
+const PROFILE_ITEMS = [
+  { label: "Wallet",                path: "/profile/wallet" },
+  { label: "Settings",              path: "/settings" },
+  { label: "Security",              path: "/security" },
+  { label: "Identity Verification", path: "/kyc" },
+  { label: "Referral program",      path: "/referral" },
+  { label: "API Management",        path: "/api-management" },
+  { label: "Mobile app",            path: "/mobile-app" },
+];
  
+// ── Mobile accordion section (collapsed until tapped) ──
+function MobileSection({ id, icon, title, open, onToggle, right, children }) {
+  return (
+    <div className="mobile-menu-section">
+      <div
+        className="mobile-menu-header"
+        onClick={onToggle}
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
+      >
+        {icon && <span style={{ marginRight: 6 }}>{icon}</span>}
+        <span style={{ flex: 1 }}>{title}</span>
+        {right}
+        <span className={`mobile-chevron${open ? " open" : ""}`}>▾</span>
+      </div>
+      {open && <div className="mobile-submenu">{children}</div>}
+    </div>
+  );
+}
+
 export default function Navbar() {
   const [activeDD, setActiveDD] = useState(null);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -79,9 +127,34 @@ export default function Navbar() {
   const { isLoggedIn, logout, user } = useAuth();
   const navigate = useNavigate();
   const assetsRef = useRef(null);
+  const navLinksRef = useRef(null);
   const [dynamicPages, setDynamicPages] = useState([]);
   const [navBalance, setNavBalance] = useState(0);
   const [navBalLoading, setNavBalLoading] = useState(true);
+  // Navbar "≈ X BTC" dikhata hai. Pehle isme `/ 80000` hardcode tha, isliye
+  // number hamesha galat rehta jab BTC price 80k se upar/neeche hoti thi.
+  const [btcPrice, setBtcPrice] = useState(0);
+ 
+  // ── Close all dropdowns on outside click / Escape ──
+  useEffect(() => {
+    const onDown = (e) => {
+      if (navLinksRef.current && !navLinksRef.current.contains(e.target)) {
+        setActiveDD(null);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        setActiveDD(null);
+        setMobExp(null);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
  
   useEffect(() => {
     const fn = (e) => {
@@ -94,15 +167,35 @@ export default function Navbar() {
   }, []);
  
   //logo dynamics
-  const [company, setCompany] = useState(null);
+  const [company, setCompany] = useState(() => {
+    try {
+      const raw = localStorage.getItem("nb_company");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef(null);
  
   useEffect(() => {
     fetch(`${API}/api/company`)
-      .then(res => res.json())
-      .then(data => setCompany(data))
-      .catch(() => {});
+      .then(res => {
+        if (!res.ok) throw new Error("company " + res.status);
+        return res.json();
+      })
+      .then(data => {
+        if (!data || !data.name) return;
+        setCompany(data);
+        try {
+          localStorage.setItem("nb_company", JSON.stringify(data));
+        } catch {
+          /* storage full / private mode - ignore */
+        }
+      })
+      .catch(() => {
+        /* keep cached company so logo/name never fall back to "Super App" */
+      });
   }, []);
  
   const SYMBOL_TO_ID = {
@@ -126,6 +219,13 @@ export default function Navbar() {
   useEffect(() => {
     if (!user?.uid) { setNavBalLoading(false); return; }
     setNavBalLoading(true);
+    // BTC price alag se — upar wala price fetch sirf unhi coins ka hota hai
+    // jinse user ke paas balance hai. Agar user ke paas BTC hi nahi hai to
+    // us list me bitcoin nahi aata, aur BTC price milti hi nahi.
+    fetch(`https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd`)
+      .then(r => r.json())
+      .then(p => setBtcPrice(p?.bitcoin?.usd || 0))
+      .catch(() => setBtcPrice(0));
     fetch(`${API}/api/users/balance?uid=${user.uid}`)
       .then(r => r.json())
       .then(d => {
@@ -287,35 +387,56 @@ export default function Navbar() {
     return name.slice(0, 3) + "***@****";
   };
  
+  const staticLabels = new Set(NAV_ITEMS.map((i) => i.label.toLowerCase()));
+
   const dynamicMenus = {};
  
   dynamicPages.forEach((p) => {
     if (!p.headerMenu) return;
- 
-    if (!dynamicMenus[p.headerMenu]) {
-      dynamicMenus[p.headerMenu] = [];
+
+    const key = p.headerMenu;
+
+    if (!dynamicMenus[key]) {
+      dynamicMenus[key] = [];
     }
- 
-    dynamicMenus[p.headerMenu].push({
+
+    dynamicMenus[key].push({
       icon: "📄",
       title: p.title,
       desc: "Dynamic page",
       path: `/page/${p.slug}`,
     });
   });
+
+  // Dynamic menus whose name already exists in the static nav are merged
+  // into that item instead of creating a duplicate entry.
+  const mergedDropdowns = { ...NAV_DROPDOWNS };
+  const extraMenus = [];
+
+  Object.keys(dynamicMenus).forEach((menu) => {
+    if (staticLabels.has(menu.toLowerCase())) {
+      mergedDropdowns[menu] = [...(mergedDropdowns[menu] || []), ...dynamicMenus[menu]];
+    } else {
+      extraMenus.push(menu);
+    }
+  });
  
   const FINAL_NAV_ITEMS = [
     ...NAV_ITEMS,
-    ...Object.keys(dynamicMenus).map((menu) => ({
+    ...extraMenus.map((menu) => ({
       label: menu,
       hasDropdown: true,
     })),
   ];
  
-  const FINAL_NAV_DROPDOWNS = {
-    ...NAV_DROPDOWNS,
-    ...dynamicMenus,
-  };
+  const FINAL_NAV_DROPDOWNS = mergedDropdowns;
+
+  const ASSET_ROWS = [
+    ["Spot", "100%", navBalance],
+    ["Margin", "0.0%", 0],
+    ["Futures", "0.0%", 0],
+    ["Earn", "0.0%", 0],
+  ];
  
   return (
     <nav className="navbar">
@@ -340,43 +461,46 @@ export default function Navbar() {
         </span>
       </Link>
  
-      {/* Desktop nav links */}
-      <div className="navbar-links hidden lg:flex">
-        {FINAL_NAV_ITEMS.map((item) => (
-          <div
-            key={item.label}
-            className="nav-item"
-            onMouseEnter={() => item.hasDropdown && setActiveDD(item.label)}
-            onMouseLeave={() => setActiveDD(null)}
-          >
-            <button className="nav-btn">
-              {item.icon && <span style={{ marginRight: 2 }}>{item.icon}</span>}
-              {item.label}
-              <span className="nav-arrow">▾</span>
-            </button>
+      {/* Desktop nav links — submenu hidden until you click the item */}
+      <div className="navbar-links hidden lg:flex" ref={navLinksRef}>
+        {FINAL_NAV_ITEMS.map((item) => {
+          const isOpen = activeDD === item.label;
+          return (
+            <div key={item.label} className="nav-item">
+              <button
+                className={`nav-btn${isOpen ? " active" : ""}`}
+                aria-expanded={isOpen}
+                aria-haspopup="true"
+                onClick={() => setActiveDD(isOpen ? null : item.label)}
+              >
+                {item.icon && <span style={{ marginRight: 2 }}>{item.icon}</span>}
+                {item.label}
+                <span className="nav-arrow">{isOpen ? "▲" : "▾"}</span>
+              </button>
  
-            {activeDD === item.label && (
-              <div className="nav-dropdown">
-                {(FINAL_NAV_DROPDOWNS[item.label] || []).map((d) => (
-                  <div
-                    key={d.title}
-                    className="dropdown-item"
-                    onClick={() => {
-                      navigate(d.path);
-                      setActiveDD(null);
-                    }}
-                  >
-                    <div className="dropdown-icon">{d.icon}</div>
-                    <div>
-                      <div className="dropdown-title">{d.title}</div>
-                      <div className="dropdown-desc">{d.desc}</div>
+              {isOpen && (
+                <div className="nav-dropdown">
+                  {(FINAL_NAV_DROPDOWNS[item.label] || []).map((d) => (
+                    <div
+                      key={d.title}
+                      className="dropdown-item"
+                      onClick={() => {
+                        navigate(d.path);
+                        setActiveDD(null);
+                      }}
+                    >
+                      <div className="dropdown-icon">{d.icon}</div>
+                      <div>
+                        <div className="dropdown-title">{d.title}</div>
+                        <div className="dropdown-desc">{d.desc}</div>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
  
       {/* Right side */}
@@ -397,23 +521,9 @@ export default function Navbar() {
         {/* logged-in actions */}
         {isLoggedIn && (
           <>
-            <button className="nb-deposit-btn hidden lg:inline-flex" onClick={() => navigate("/profile/wallet?action=deposit")}>
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-              >
-                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              Deposit
-            </button>
- 
-            <div className="nb-dd-wrap" ref={assetsRef}>
+            {/* Deposit button hata diya — admin hi wallet me credit karta hai. */}
+
+            <div className="nb-dd-wrap nb-desktop-only" ref={assetsRef}>
               <button className="nb-text-btn hidden lg:inline-flex" onClick={() => setAssetsOpen((o) => !o)}>
                 Assets <span className="nb-chevron">{assetsOpen ? "▲" : "▾"}</span>
               </button>
@@ -437,31 +547,11 @@ export default function Navbar() {
                   <div className="nad-balance">
                     {navBalLoading ? "—" : navBalance.toFixed(2)} <span style={{ fontSize: 20 }}>USD</span>
                   </div>
-                  <div className="nad-btc">≈ {navBalLoading ? "—" : (navBalance / 80000).toFixed(4)} BTC</div>
+                  <div className="nad-btc">≈ {navBalLoading || !btcPrice || !navBalance ? "—" : (navBalance / btcPrice).toFixed(6)} BTC</div>
                   <p className="nad-note">*Data may be delayed.</p>
 
                   <div className="nad-btn-row">
-                    <button
-                      className="nad-action-btn"
-                      onClick={() => {
-                        setAssetsOpen(false);
-                        navigate("/profile/wallet?action=deposit");
-                      }}
-                    >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-                        <polyline points="7 10 12 15 17 10" />
-                        <line x1="12" y1="15" x2="12" y2="3" />
-                      </svg>
-                      Deposit
-                    </button>
+                    {/* Deposit button hata diya — admin hi credit karta hai. */}
 
                     <button
                       className="nad-action-btn"
@@ -488,12 +578,7 @@ export default function Navbar() {
 
                   <div className="nad-divider" />
 
-                  {[
-                    ["Spot", "100%", navBalance],
-                    ["Margin", "0.0%", 0],
-                    ["Futures", "0.0%", 0],
-                    ["Earn", "0.0%", 0],
-                  ].map(([lbl, pct, val]) => (
+                  {ASSET_ROWS.map(([lbl, pct, val]) => (
                     <div key={lbl} className="nad-item">
                       <div>
                         <div className="nad-item-lbl">{lbl}</div>
@@ -507,7 +592,7 @@ export default function Navbar() {
             </div>
  
             {/* ── HISTORY DROPDOWN ── */}
-            <div className="relative" ref={historyRef}>
+            <div className="relative nb-desktop-only" ref={historyRef}>
               <button
                 className="nb-text-btn hidden lg:inline-flex"
                 onClick={() => setHistoryOpen((o) => !o)}
@@ -544,7 +629,10 @@ export default function Navbar() {
             <div className="relative" ref={profileRef}>
               <div
                 className="cursor-pointer w-8 h-8 rounded-full overflow-hidden flex items-center justify-center bg-[#4a5568] text-white text-sm font-bold"
-                onClick={() => setProfileOpen((o) => !o)}
+                onClick={() => {
+                  setMobileOpen(false);
+                  setProfileOpen((o) => !o);
+                }}
               >
                 {user?.photo ? (
                   <img src={user.photo} alt="" className="w-full h-full object-cover" />
@@ -587,15 +675,7 @@ export default function Navbar() {
                   <div className="h-px bg-[#2d3148]" />
  
                   {/* Menu Items */}
-                  {[
-                    { label: "Wallet",                path: "/profile/wallet" },
-                    { label: "Settings",              path: "/settings" },
-                    { label: "Security",              path: "/security" },
-                    { label: "Identity Verification", path: "/kyc" },
-                    { label: "Referral program",      path: "/referral" },
-                    { label: "API Management",        path: "/api-management" },
-                    { label: "Mobile app",            path: "/mobile-app" },
-                  ].map((item) => (
+                  {PROFILE_ITEMS.map((item) => (
                     <div
                       key={item.label}
                       className="flex items-center justify-between px-4 py-3 text-[#ccc] text-sm cursor-pointer hover:bg-[#22263a] hover:text-white transition-colors duration-150"
@@ -621,21 +701,35 @@ export default function Navbar() {
               )}
             </div>
             {/* ── END PROFILE DROPDOWN ── */}
- 
-            <button className="btn-signup" onClick={handleLogout}>
-              Logout
-            </button>
+            {/* Log out lives inside the profile dropdown above — no duplicate button here */}
           </>
         )}
  
         {/* ── LANGUAGE SWITCHER ── */}
-        <div className="relative" ref={langRef}>
+        <div className="relative nb-desktop-only" ref={langRef}>
           <button
-            className="navbar-lang hidden lg:flex items-center gap-1 cursor-pointer select-none"
-            onClick={() => setLangOpen((o) => !o)}
+            className="navbar-lang hidden lg:flex items-center gap-1.5 cursor-pointer select-none"
+            aria-expanded={langOpen}
+            aria-haspopup="true"
+            onClick={() => {
+              setActiveDD(null);
+              setLangOpen((o) => !o);
+            }}
           >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" />
+            </svg>
             {selectedLang.label}
-            <span className="text-[10px] opacity-60">{langOpen ? "▲" : "▾"}</span>
+            <span className="nav-arrow">{langOpen ? "▲" : "▾"}</span>
           </button>
  
           {langOpen && (
@@ -670,7 +764,19 @@ export default function Navbar() {
         </div>
         {/* ── END LANGUAGE SWITCHER ── */}
  
-        <button className="hamburger lg:hidden" onClick={() => setMobileOpen((o) => !o)} aria-label="Menu">
+        <button
+          className="hamburger lg:hidden"
+          onClick={() => {
+            setProfileOpen(false);
+            setAssetsOpen(false);
+            setHistoryOpen(false);
+            setLangOpen(false);
+            setActiveDD(null);
+            setMobExp(null);
+            setMobileOpen((o) => !o);
+          }}
+          aria-label="Menu"
+        >
           {mobileOpen ? (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M18 6L6 18M6 6l12 12" />
@@ -693,12 +799,16 @@ export default function Navbar() {
           <div className="mobile-menu" style={{ zIndex: 100 }}>
             {FINAL_NAV_ITEMS.map((item) => {
               const kids = FINAL_NAV_DROPDOWNS[item.label] || [];
+              const open = mobExp === item.label;
               return (
-                <div key={item.label} className="mobile-menu-section">
-                  <div className="mobile-menu-header" style={{ cursor: "default" }}>
-                    {item.icon && <span style={{ marginRight: 6 }}>{item.icon}</span>}
-                    {item.label}
-                  </div>
+                <MobileSection
+                  key={item.label}
+                  id={item.label}
+                  icon={item.icon}
+                  title={item.label}
+                  open={open}
+                  onToggle={() => setMobExp(open ? null : item.label)}
+                >
                   {kids.map((d) => (
                     <div
                       key={d.title}
@@ -721,28 +831,133 @@ export default function Navbar() {
                       <span>{item.label} Home</span>
                     </div>
                   )}
-                </div>
+                </MobileSection>
               );
             })}
 
             {isLoggedIn && (
-              <div className="mobile-menu-section" style={{ borderTop: "1px solid #2d3148" }}>
-                <button
-                  className="mobile-submenu-item"
-                  style={{ width: "100%", background: "none", border: "none", textAlign: "left" }}
-                  onClick={() => { navigate("/profile/wallet?action=deposit"); setMobileOpen(false); }}
+              <>
+                {/* ── ASSETS ── */}
+                <MobileSection
+                  id="__assets"
+                  icon="💼"
+                  title="Assets"
+                  open={mobExp === "__assets"}
+                  onToggle={() => setMobExp(mobExp === "__assets" ? null : "__assets")}
                 >
-                  <span className="mobile-sub-icon">＋</span><span>Deposit</span>
-                </button>
-                <button
-                  className="mobile-submenu-item"
-                  style={{ width: "100%", background: "none", border: "none", textAlign: "left" }}
-                  onClick={() => { handleLogout(); setMobileOpen(false); }}
+                  <div className="mob-assets">
+                    <div className="nad-header">
+                      <span className="nad-title">Total Balance</span>
+                    </div>
+                    <div className="nad-balance">
+                      {navBalLoading ? "—" : navBalance.toFixed(2)} <span style={{ fontSize: 20 }}>USD</span>
+                    </div>
+                    <div className="nad-btc">
+                      ≈ {navBalLoading || !btcPrice || !navBalance ? "—" : (navBalance / btcPrice).toFixed(6)} BTC
+                    </div>
+                    <p className="nad-note">*Data may be delayed.</p>
+
+                    <div className="nad-btn-row">
+                      {/* Deposit button hata diya — admin hi credit karta hai. */}
+                      <button
+                        className="nad-action-btn"
+                        onClick={() => { navigate("/profile"); setMobileOpen(false); }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M21 15v4a2 2 0 01-2 2H5a22 0 01-2-2v-4" />
+                          <polyline points="17 8 12 3 7 8" />
+                          <line x1="12" y1="3" x2="12" y2="15" />
+                        </svg>
+                        Withdraw
+                      </button>
+                    </div>
+
+                    <div className="nad-divider" />
+
+                    {ASSET_ROWS.map(([lbl, pct, val]) => (
+                      <div key={lbl} className="nad-item">
+                        <div>
+                          <div className="nad-item-lbl">{lbl}</div>
+                          <div className="nad-item-pct">{pct}</div>
+                        </div>
+                        <div className="nad-item-val">${(val || 0).toFixed(2)}</div>
+                      </div>
+                    ))}
+                  </div>
+                </MobileSection>
+
+                {/* ── HISTORY ── */}
+                <MobileSection
+                  id="__history"
+                  icon="🕘"
+                  title="History"
+                  open={mobExp === "__history"}
+                  onToggle={() => setMobExp(mobExp === "__history" ? null : "__history")}
                 >
-                  <span className="mobile-sub-icon">⏻</span><span>Logout</span>
-                </button>
-              </div>
+                  {HISTORY_ITEMS.map((item) => (
+                    <div
+                      key={item.label}
+                      className="mobile-submenu-item"
+                      onClick={() => { navigate(item.path); setMobileOpen(false); }}
+                    >
+                      <span className="mobile-sub-icon">›</span>
+                      <span>{item.label}</span>
+                    </div>
+                  ))}
+                </MobileSection>
+
+                {/* ── PROFILE ── */}
+                <MobileSection
+                  id="__profile"
+                  icon="👤"
+                  title={user?.name || user?.email?.split("@")[0] || "Profile"}
+                  open={mobExp === "__profile"}
+                  onToggle={() => setMobExp(mobExp === "__profile" ? null : "__profile")}
+                >
+                  {PROFILE_ITEMS.map((item) => (
+                    <div
+                      key={item.label}
+                      className="mobile-submenu-item"
+                      onClick={() => { navigate(item.path); setMobileOpen(false); }}
+                    >
+                      <span className="mobile-sub-icon">›</span>
+                      <span>{item.label}</span>
+                    </div>
+                  ))}
+                  <div
+                    className="mobile-submenu-item"
+                    style={{ color: "#e05561" }}
+                    onClick={() => { handleLogout(); setMobileOpen(false); }}
+                  >
+                    <span className="mobile-sub-icon">⏻</span>
+                    <span>Log out</span>
+                  </div>
+                </MobileSection>
+              </>
             )}
+
+            {/* ── LANGUAGE ── */}
+            <MobileSection
+              id="__lang"
+              icon="🌐"
+              title="Language"
+              right={<span className="mobile-chevron-label">{selectedLang.label}</span>}
+              open={mobExp === "__lang"}
+              onToggle={() => setMobExp(mobExp === "__lang" ? null : "__lang")}
+            >
+              {LANGUAGES.map((lang) => (
+                <div
+                  key={lang.code}
+                  className="mobile-submenu-item"
+                  style={selectedLang.code === lang.code ? { color: "#3b82f6" } : undefined}
+                  onClick={() => { handleLangSelect(lang); setMobileOpen(false); }}
+                >
+                  <span className="mobile-sub-icon">{lang.label}</span>
+                  <span style={{ flex: 1 }}>{lang.name}</span>
+                  {selectedLang.code === lang.code && <span style={{ fontSize: 12 }}>✓</span>}
+                </div>
+              ))}
+            </MobileSection>
 
             <div className="mobile-auth-btns">
               {!isLoggedIn && (
