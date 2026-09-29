@@ -44,6 +44,7 @@ if (!ADMIN_LOGIN_ENABLED) {
 
 const USERS_FILE = join(__dirname, "data", "users.json");
 const SESSIONS_FILE = join(__dirname, "data", "sessions.json");
+const COIN_META_FILE = join(__dirname, "data", "coinMeta.json");
 
 // ── JSON DB helpers ─────────────────────────────────────────
 function readDB(file) {
@@ -547,8 +548,70 @@ const SPARKLINE_TTL_MS = 5 * 60_000; // 7d hourly sparkline slowly badalta hai
 const UPSTREAM_TIMEOUT_MS = 6000;
 
 let priceSnapshot = null;    // { at, source, list: [...coins] }
+let lastGoodList = null;     // last full CoinGecko list — fallback isse merge hota hai
 let priceInFlight = null;    // single-flight promise
 let priceRetryAfter = 0;     // epoch ms — 429 backoff
+// id -> { image, name, market_cap }. CoinGecko se persist hota hai taaki Binance
+// fallback (jisme image/market_cap nahi aati) par bhi REAL icons dikhein —
+// dummy icon tabhi dikhta tha jab `image` null aati thi.
+let coinMeta = {};
+function loadCoinMeta() {
+  try { coinMeta = JSON.parse(readFileSync(COIN_META_FILE, "utf8")) || {}; }
+  catch { /* pehli baar ho to khaali */ }
+}
+function saveCoinMeta() {
+  try { writeFileSync(COIN_META_FILE, JSON.stringify(coinMeta)); } catch {}
+}
+loadCoinMeta();
+
+// CoinGecko API blocked/rate-limited hone par bhi REAL icons milte rahein.
+// Ye verified static CDN URLs hain (CoinGecko API se raw nahi milti tab bhi
+// assets.coingecko.com static files served hoti hain). `coinMeta` me tabhi
+// dalte hain jab live data nahi hai — API recover hote hi exact URL live se
+// aa jata hai (self-healing). Baaki extended coins (fetch-ai, stellar, etc.)
+// live recovery par transparently aa jaate hain.
+const SEED_IMAGES = {
+  "bitcoin": "https://assets.coingecko.com/coins/images/1/large/bitcoin.png",
+  "ethereum": "https://assets.coingecko.com/coins/images/279/large/ethereum.png",
+  "binancecoin": "https://assets.coingecko.com/coins/images/825/large/bnb-icon2_2x.png",
+  "solana": "https://assets.coingecko.com/coins/images/4128/large/solana.png",
+  "ripple": "https://assets.coingecko.com/coins/images/44/large/xrp-symbol-white-128.png",
+  "dogecoin": "https://assets.coingecko.com/coins/images/5/large/dogecoin.png",
+  "cardano": "https://assets.coingecko.com/coins/images/975/large/cardano.png",
+  "tron": "https://assets.coingecko.com/coins/images/1094/large/tron-logo.png",
+  "avalanche": "https://assets.coingecko.com/coins/images/12559/large/Avalanche_Circle_RedWhite_Trans.png",
+  "chainlink": "https://assets.coingecko.com/coins/images/877/large/chainlink-new-logo.png",
+  "polkadot": "https://assets.coingecko.com/coins/images/12171/large/polkadot.png",
+  "uniswap": "https://assets.coingecko.com/coins/images/12504/large/uniswap-uni.png",
+  "litecoin": "https://assets.coingecko.com/coins/images/2/large/litecoin.png",
+  "near": "https://assets.coingecko.com/coins/images/10365/large/near.jpg",
+  "aptos": "https://assets.coingecko.com/coins/images/26455/large/aptos_round.png",
+  "sui": "https://assets.coingecko.com/coins/images/26375/large/sui_asset.jpeg",
+  "pepe": "https://assets.coingecko.com/coins/images/29850/large/pepe-token.jpeg",
+  "shiba-inu": "https://assets.coingecko.com/coins/images/11939/large/shiba.png",
+  "toncoin": "https://assets.coingecko.com/coins/images/17980/large/ton_symbol.png",
+  "internet-computer": "https://assets.coingecko.com/coins/images/14495/large/Internet_Computer_logo.png",
+  "bitcoin-cash": "https://assets.coingecko.com/coins/images/780/large/bitcoin-cash-circle.png",
+  "wrapped-bitcoin": "https://assets.coingecko.com/coins/images/7598/large/wrapped_bitcoin_wbtc.png",
+  "usd-coin": "https://assets.coingecko.com/coins/images/6319/large/USD_Coin_icon.png",
+  "tether": "https://assets.coingecko.com/coins/images/325/large/Tether.png",
+  "matic": "https://assets.coingecko.com/coins/images/4713/large/matic-token-icon.png",
+  "ethereum-classic": "https://assets.coingecko.com/coins/images/453/large/ethereum-classic-logo.png",
+  "cosmos": "https://assets.coingecko.com/coins/images/1481/large/cosmos_hub.png",
+  "filecoin": "https://assets.coingecko.com/coins/images/12817/large/filecoin.png",
+  "hedera": "https://assets.coingecko.com/coins/images/3688/large/hbar.png",
+  // Extended screener coins (verified jsdelivr cryptocurrency-icons)
+  "stellar": "https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/32/icon/xlm.png",
+  "aave": "https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/32/icon/aave.png",
+  "harmony": "https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/32/icon/one.png",
+  "the-graph": "https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/32/icon/grt.png",
+  "vechain": "https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/32/icon/vet.png",
+  "decentraland": "https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/32/icon/mana.png",
+};
+for (const [id, image] of Object.entries(SEED_IMAGES)) {
+  if (!coinMeta[id]?.image) coinMeta[id] = { image, name: coinMeta[id]?.name || id, market_cap: coinMeta[id]?.market_cap ?? null };
+}
+saveCoinMeta();
 let sparklineCache = null;   // { at, byId: {id: {price: []}} }
 let sparklineInFlight = null;
 
@@ -668,13 +731,13 @@ async function fetchBinanceTickers() {
       out.push({
         id,
         symbol: base,
-        name: base,
-        image: null,             // Binance image nahi deta — UI fallback icon use karti hai
+        name: coinMeta[id]?.name || base,
+        image: coinMeta[id]?.image ?? null,
         current_price: Number(t.lastPrice),
         high_24h: Number(t.highPrice),
         low_24h: Number(t.lowPrice),
         total_volume: Number(t.quoteVolume),
-        market_cap: null,        // Binance market cap nahi deta
+        market_cap: coinMeta[id]?.market_cap ?? null,
         price_change_percentage_24h: Number(t.priceChangePercent),
       });
     }
@@ -695,13 +758,13 @@ function stableCoinFallback() {
   return Object.entries(STABLE_IDS).map(([id, symbol]) => ({
     id,
     symbol,
-    name: symbol,
-    image: null,
+    name: coinMeta[id]?.name || symbol,
+    image: coinMeta[id]?.image ?? null,
     current_price: 1,
     high_24h: 1.02,
     low_24h: 0.99,
     total_volume: null,
-    market_cap: null,
+    market_cap: coinMeta[id]?.market_cap ?? null,
     price_change_percentage_24h: 0.01,
   }));
 }
@@ -728,27 +791,56 @@ async function refreshSnapshot() {
     try {
       const list = await fetchCoinGeckoMarkets([], 250);
       priceSnapshot = { at: Date.now(), source: "coingecko", list };
+      lastGoodList = list;
       priceRetryAfter = 0;
+      // Real images / names persist karo — fallback rows ko bhi milein.
+      for (const c of list) {
+        if (c.id && c.image != null) {
+          coinMeta[c.id] = { image: c.image, name: c.name || c.id, market_cap: c.market_cap ?? null };
+        }
+      }
+      saveCoinMeta();
       return priceSnapshot;
     } catch (err) {
-      // CoinGecko fail / limited -> Binance se live price le lo.
+      // CoinGecko fail / limited -> Binance se live price le lo. Dhyan rakho:
+      // fallback hamesha LAST GOOD FULL list se merge karo (250 coins), na ki
+      // update priceSnapshot se. Warna ek baar chhota (stablecoin-only) list
+      // bann gaya to feedback loop usi ko bar-bar merge karke poori market list
+      // ko decay kar deta hai — sirf USDT/USDC dikhne lagte hain.
       try {
         const list = await fetchBinanceTickers();
-        const merged = [...list, ...stableCoinFallback()];
-        if (merged.length) {
-          // Binance snapshot thoda kam coins deta hai, isliye pehle wala
-          // CoinGecko data usme merge kar dete hain (market cap / image bacha rahe).
-          const byId = new Map((priceSnapshot?.list || []).map((c) => [c.id, c]));
-          for (const c of merged) {
+        if (list.length) {
+          // Binance snapshot thoda kam coins deta hai, isliye last good
+          // CoinGecko list usme merge kar dete hain (market cap / image bacha rahe).
+          const byId = new Map((lastGoodList || []).map((c) => [c.id, c]));
+          for (const c of list) {
             const prev = byId.get(c.id);
             byId.set(c.id, prev ? { ...prev, ...c, market_cap: c.market_cap ?? prev.market_cap, image: c.image ?? prev.image } : c);
+          }
+          // Stablecoins (tether/USDT) ka Binance pair hota nahi — synthetic row
+          // tabhi daalo jab reality me koi pair hi nahi, warna real row (vol/high/low)
+          // overwrite ho jata hai (USDC ke saath ye hota tha).
+          for (const s of stableCoinFallback()) {
+            if (!byId.has(s.id)) byId.set(s.id, s);
           }
           priceSnapshot = { at: Date.now(), source: "binance", list: [...byId.values()] };
           return priceSnapshot;
         }
         throw err;
       } catch (binanceErr) {
-        // Dono fail. Purana data bhej do — khaali se behtar hai.
+        // Dono fail. Last good full list bhejo (stale prices) — khaali list ya
+        // sirf stablecoin rows se behtar; market page poori bani rehti hai.
+        if (lastGoodList) {
+          priceSnapshot = {
+            ...(priceSnapshot || {}),
+            at: Date.now(),
+            stale: true,
+            error: String(binanceErr.message || binanceErr),
+            list: lastGoodList,
+          };
+          return priceSnapshot;
+        }
+        // Purana data bhej do — khaali se behtar hai.
         if (priceSnapshot) {
           priceSnapshot = { ...priceSnapshot, stale: true, error: String(binanceErr.message || binanceErr) };
           return priceSnapshot;
@@ -852,7 +944,10 @@ function sortCoins(coins, order) {
 app.get("/api/prices", async (req, res) => {
   const ids = String(req.query.ids || "")
     .split(",").map((s) => s.trim()).filter(Boolean).slice(0, 250);
-  const limit = Math.min(Number(req.query.limit) || (ids.length ? ids.length : 250), 250);
+  const limit = Math.min(
+    Math.max(Number(req.query.limit) || 250, ids.length || 0),
+    250
+  );
   const wantSparkline = String(req.query.sparkline || "") === "1" || String(req.query.sparkline) === "true";
   const order = String(req.query.order || "");
 
