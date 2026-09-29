@@ -669,7 +669,12 @@ for (const [id, pair] of Object.entries(BINANCE_PAIR)) {
 }
 
 function upstreamHeaders() {
-  return { accept: "application/json" };
+  // CoinGecko/Binance kabhi-kabhi bina User-Agent ke requests ko reject
+  // karte hain. Browser-like UA bharna real browsers jaisa response deta hai.
+  return {
+    accept: "application/json",
+    "user-agent": "Mozilla/5.0 (compatible; prizm-price-feed/1.0)",
+  };
 }
 
 // ── Upstream fetchers ────────────────────────────────────────────────
@@ -691,7 +696,14 @@ async function fetchCoinGeckoMarkets(ids, perPage = 250) {
 }
 
 // Binance fallback — ek call me saari pairs ka 24h ticker.
-async function fetchBinanceTickers() {
+//
+// Datacenter hosts (Render etc.) par `api.binance.com` geo-blocked/451 ho
+// sakta hai aur CoinGecko 429 — tab markets page "Failed to load data" de
+// deta hai. `data-api.binance.vision` Binance ka public market-data domain
+// hai (usi payload ke saath) aur datacenter IPs par zyadatar khula rehta hai.
+const BINANCE_HOSTS = ["https://api.binance.com", "https://data-api.binance.vision"];
+
+async function fetchBinanceTickersFrom(host) {
   const pairs = Object.values(BINANCE_PAIR);
   if (!pairs.length) return [];
 
@@ -700,7 +712,7 @@ async function fetchBinanceTickers() {
   // ho to per-symbol calls — taaki ek unknown pair poora fallback maar na de.
   let data = null;
   try {
-    const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(pairs))}`;
+    const url = `${host}/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(pairs))}`;
     const r = await fetch(url, { headers: upstreamHeaders(), signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) });
     if (!r.ok) throw new Error(`Binance ${r.status}`);
     const body = await r.json();
@@ -709,7 +721,7 @@ async function fetchBinanceTickers() {
 
   if (!data) {
     const settled = await Promise.allSettled(pairs.map((p) =>
-      fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${p}`, {
+      fetch(`${host}/api/v3/ticker/24hr?symbol=${p}`, {
         headers: upstreamHeaders(),
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
@@ -718,7 +730,24 @@ async function fetchBinanceTickers() {
   }
 
   if (!Array.isArray(data)) throw new Error("Binance: bad payload");
+  return data;
+}
 
+async function fetchBinanceTickers() {
+  let lastErr = null;
+  for (const host of BINANCE_HOSTS) {
+    try {
+      const data = await fetchBinanceTickersFrom(host);
+      if (data && data.length) return buildBinanceRows(data);
+      lastErr = new Error(`Binance ${host}: empty`);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error("Binance: all hosts failed");
+}
+
+function buildBinanceRows(data) {
   // Binance symbol -> CoinGecko ids (ek pair ke kai ids ho sakte hain)
   const idsForPair = IDS_FOR_PAIR;
 
