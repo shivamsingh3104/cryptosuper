@@ -29,9 +29,9 @@ dotenv.config();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 5001;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@example.com";
-// Password ka koi default fallback NAHI. Pehle yahan `|| "REDACTED"` tha —
-// matlab env var bhoolne par repo ka padhne-likhnay wala default chal jata.
-// Ab missing password par admin login seedha refuse hota hai.
+// Password ka koi default fallback NAHI. Pehle yahan ek hardcoded default
+// tha jo repo me published tha — matlab env var bhoolne par wahi jaan-boojh
+// kar chal jata. Ab missing password par admin login seedha refuse hota hai.
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const ADMIN_LOGIN_ENABLED = ADMIN_PASSWORD.length > 0;
 
