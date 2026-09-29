@@ -6,6 +6,7 @@ import { randomBytes } from "crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import employeeRoutes from "./routes/employeeRoutes.js";
+import { issueAdminToken, isAdminToken, adminTokenOwner } from "./config/adminSession.js";
 import { db, admin } from "./config/firebase.js";
 const FieldValue = admin.firestore.FieldValue;
 import companyRoutes from "./routes/companyRoutes.js";
@@ -28,7 +29,18 @@ dotenv.config();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 5001;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@example.com";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "REDACTED";
+// Password ka koi default fallback NAHI. Pehle yahan `|| "REDACTED"` tha —
+// matlab env var bhoolne par repo ka padhne-likhnay wala default chal jata.
+// Ab missing password par admin login seedha refuse hota hai.
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
+const ADMIN_LOGIN_ENABLED = ADMIN_PASSWORD.length > 0;
+
+if (!ADMIN_LOGIN_ENABLED) {
+  console.warn(
+    "[SECURITY] ADMIN_PASSWORD set nahi hai — /api/admin/login disabled rahega. " +
+      "Koi bhi default password mat rakhein."
+  );
+}
 
 const USERS_FILE = join(__dirname, "data", "users.json");
 const SESSIONS_FILE = join(__dirname, "data", "sessions.json");
@@ -260,42 +272,38 @@ app.get("/api/users/debug/:uid", requireUser, async (req, res) => {
 // Password .env se aata hai aur token runtime pe banta hai —
 // dono source me hardcoded nahi hain, to browser bundle me leak nahi ho sakte.
 
-const adminTokens = new Set();
-
-// token -> admin email, taaki approve/reject par audit trail likh sakein.
-const adminTokenOwners = new Map();
-
-// Purane bundle me token baked tha, isliye compatibility ke liye ek escape
-// hatch rakha hai — lekin AB default OFF hai.
+// Purane bundle me ek shared secret token baked tha. Wo string repo ke git
+// history me "Initial commit" se padi hai, yaani effectively public thi —
+// clone/GitHub search se mil jati thi. Ab wo secret NAHI repo me hai: sirf
+// env se aata hai, aur default OFF hai.
 //
-// Ye string repo ke git history me "Initial commit" se padi hui hai, yaani
-// effectively public hai. Jab tak POST /api/admin/credit jaisa endpoint
-// unlimited paisa credit karta hai, ye constant live rakhna = koi bhi jisko
-// ye string mila (clone, GitHub search, purana bundle) unlimited apna wallet
-// bhar sakta hai. Isliye sirf env se explicitly on kiya ja sakta hai.
+//   ALLOW_LEGACY_ADMIN_TOKEN=true
+//   LEGACY_ADMIN_TOKEN=<purana token>
 //
-// Old bundle abhi deploy hai? Temporary:
-//   ALLOW_LEGACY_ADMIN_TOKEN=true   (aur naye bundle upload karte hi hata do)
+// Old bundle abhi deploy hai? Temporary on karein, naya bundle upload karne
+// ke baad turant hata dein. Ye escape hatch sirf migration ke liye hai.
 const ALLOW_LEGACY_ADMIN_TOKEN = process.env.ALLOW_LEGACY_ADMIN_TOKEN === "true";
-const LEGACY_ADMIN_TOKEN = "REDACTED";
+const LEGACY_ADMIN_TOKEN = process.env.LEGACY_ADMIN_TOKEN || "";
 
-if (ALLOW_LEGACY_ADMIN_TOKEN) {
+if (ALLOW_LEGACY_ADMIN_TOKEN && !LEGACY_ADMIN_TOKEN) {
   console.warn(
-    "[SECURITY] ALLOW_LEGACY_ADMIN_TOKEN=true — shared-secret admin auth is ENABLED. " +
-      "Use this only to migrate the bundle immediately, otherwise anyone can become an admin."
+    "[SECURITY] ALLOW_LEGACY_ADMIN_TOKEN=true par LEGACY_ADMIN_TOKEN set nahi hai — " +
+      "legacy auth effectively disabled hai."
   );
 }
 
 function legacyTokenAccepted(t) {
-  return ALLOW_LEGACY_ADMIN_TOKEN && t === LEGACY_ADMIN_TOKEN;
+  return ALLOW_LEGACY_ADMIN_TOKEN && LEGACY_ADMIN_TOKEN !== "" && t === LEGACY_ADMIN_TOKEN;
 }
 
 app.post("/api/admin/login", (req, res) => {
+  if (!ADMIN_LOGIN_ENABLED) {
+    return res.status(503).json({ message: "Admin login is disabled: ADMIN_PASSWORD is not set" });
+  }
   const { email, password } = req.body;
   if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
     const token = randomBytes(32).toString("hex");
-    adminTokens.add(token);
-    adminTokenOwners.set(token, email);
+    issueAdminToken(token, email);
     return res.json({ success: true, token });
   }
   return res.status(401).json({ message: "Invalid admin credentials" });
@@ -303,14 +311,14 @@ app.post("/api/admin/login", (req, res) => {
 
 function requireAdmin(req, res, next) {
   const t = req.headers["x-admin-token"];
-  if (adminTokens.has(t) || legacyTokenAccepted(t)) return next();
+  if (isAdminToken(t) || legacyTokenAccepted(t)) return next();
   return res.status(401).json({ message: "Unauthorized" });
 }
 
 // Kaunsa admin ye action kar raha hai — audit fields me likha jata hai.
 function adminActor(req) {
   const t = req.headers["x-admin-token"];
-  return adminTokenOwners.get(t) || (legacyTokenAccepted(t) ? "legacy-token" : "unknown");
+  return adminTokenOwner(t) || (legacyTokenAccepted(t) ? "legacy-token" : "unknown");
 }
 
 // Admin auth ab Firebase ID token + Firestore role check karta hai.
@@ -1261,5 +1269,5 @@ app.put("/api/admin/trades/:id/reject", requireAdmin, async (req, res) => {
 // ── Start ────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`✅ Backend running on http://localhost:${PORT}`);
-  console.log(`   Admin: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}`);
+  console.log(`   Admin: ${ADMIN_EMAIL} / ${ADMIN_LOGIN_ENABLED ? "<ADMIN_PASSWORD se set>" : "<DISABLED - ADMIN_PASSWORD missing>"}`);
 });
