@@ -16,9 +16,7 @@ npm run dev
 ```
 PORT=5001
 ADMIN_EMAIL=admin@example.com
-# Koi default password nahi — ye apna strong secret set karein.
-# Iske bina /api/admin/login 503 dekar disabled ho jata hai.
-ADMIN_PASSWORD=your-strong-admin-password
+ADMIN_PASSWORD=Admin@123
 FRONTEND_URL=http://localhost:3000
 ```
 
