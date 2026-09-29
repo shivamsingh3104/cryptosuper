@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from "react";
-
-const BASE = "https://api.coingecko.com/api/v3";
+import { API } from "../../config/api";
 
 export default function FeesPage() {
   const [coins, setCoins] = useState([]);
 
   useEffect(() => {
-    fetch(`${BASE}/coins/markets?vs_currency=usd&per_page=15&page=1`)
+    fetch(`${API}/api/prices?limit=15`)
       .then((res) => res.json())
-      .then((data) => setCoins(data))
+      .then((data) => setCoins(data.coins || []))
       .catch((err) => console.error(err));
   }, []);
 

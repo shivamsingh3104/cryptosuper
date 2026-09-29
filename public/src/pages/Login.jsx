@@ -4,6 +4,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebase"; // ✅ ADD
 import { saveUser } from "../services/userService"; // ✅ ADD
 import { authErrorMessage } from "../utils/authErrors";
+import { SITE_ORIGIN } from "../config/site";
 
 function generateCaptcha() {
   const chars = "0123456789";
@@ -77,7 +78,7 @@ export default function Login() {
             <rect x="3" y="11" width="18" height="11" rx="2"/>
             <path d="M7 11V7a5 5 0 0110 0v4"/>
           </svg>
-          <span>https://kepwix.com</span>
+          <span>{SITE_ORIGIN}</span>
         </div>
 
         <h2 className="auth-title">Log In</h2>

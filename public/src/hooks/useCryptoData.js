@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-
-const BASE = "https://api.coingecko.com/api/v3";
+import { API } from "../config/api";
 
 // Map coingecko id → trading pair label
 const PAIR_MAP = {
@@ -46,10 +45,12 @@ export function useCryptoData(refreshInterval = 30000) {
   const fetchData = useCallback(async () => {
     try {
       const ids = Object.keys(PAIR_MAP).join(",");
-      const url = `${BASE}/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&per_page=25&page=1&sparkline=true&price_change_percentage=24h`;
+      const url = `${API}/api/prices?ids=${ids}&limit=25&sparkline=1`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const payload = await res.json();
+      if (payload.error && !payload.coins?.length) throw new Error(payload.error);
+      const data = payload.coins || [];
 
       const mapped = data.map((c) => ({
         id: c.id,

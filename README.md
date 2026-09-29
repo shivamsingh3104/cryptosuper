@@ -1,4 +1,4 @@
-# KepWix Backend
+# Backend API
 
 ## Setup
 
@@ -15,7 +15,7 @@ npm run dev
 
 ```
 PORT=5000
-ADMIN_EMAIL=admin@kepwix.com
+ADMIN_EMAIL=admin@example.com
 ADMIN_PASSWORD=REDACTED
 FRONTEND_URL=http://localhost:3000
 ```

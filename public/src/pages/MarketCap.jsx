@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { API } from "../config/api";
 
 const fmt = (n, d = 2) => n == null ? "—" : Number(n).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 
@@ -34,8 +35,8 @@ export default function MarketCap() {
   const fetchData = useCallback(async () => {
     try {
       const ids = ["bitcoin","ethereum","tether","xrp","binancecoin","usd-coin","solana","tron","dogecoin","hyperliquid","leo-token","wrapped-bitcoin","cardano","avalanche-2","chainlink","shiba-inu","toncoin","polkadot","bitcoin-cash","near","litecoin","uniswap","internet-computer","stellar","ethereum-classic","okb","cronos","aptos","sui","hedera","filecoin","cosmos","the-graph","render-token","injective-protocol","aave","algorand","vechain","elrond","decentraland"];
-      const res = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids.join(",")}&order=market_cap_desc&per_page=40&page=1&sparkline=false&price_change_percentage=24h`);
-      const data = await res.json();
+      const res = await fetch(`${API}/api/prices?ids=${ids.join(",")}&limit=40`);
+      const data = (await res.json()).coins || [];
       setCoins(data);
       setError(null);
     } catch (e) {

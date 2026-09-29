@@ -19,7 +19,7 @@ export default function Profile() {
     <div className="max-w-5xl mx-auto p-6 md:p-12 min-h-screen bg-gray-50">
       <div className="mb-10 border-b pb-6 text-center md:text-left">
         <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">Official Wallets</h2>
-        <p className="text-gray-500 mt-2">Platform wallets. Deposit abhi admin ke through wallet me credit hota hai.</p>
+        <p className="text-gray-500 mt-2">Platform wallets. Deposits are currently credited to the wallet by an administrator.</p>
       </div>
 
       <div className="mb-8">
@@ -62,11 +62,11 @@ export default function Profile() {
 
       <div className="mt-10 bg-blue-50 p-6 rounded-3xl border border-blue-100">
         <p className="text-sm text-blue-700 font-medium">
-          Wallet balance aur withdrawal ke liye{" "}
+          Open{" "}
           <button onClick={() => navigate("/profile/wallet")} className="text-blue-600 underline font-bold">
             Wallet
           </button>{" "}
-          kholein. Paise admin wallet me credit karta hai.
+          to view your balance and make a withdrawal. Funds are credited to the wallet by an administrator.
         </p>
       </div>
     </div>

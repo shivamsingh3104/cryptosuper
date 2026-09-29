@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { GlobeAltIcon, ChevronDownIcon, LockClosedIcon } from '@heroicons/react/24/outline';
+import { SITE_ORIGIN, SITE_POSSESSIVE } from '../../config/site';
 
-const KepWixVerification = () => {
+const ChannelVerification = () => {
   // Option types for the dropdown
   const channelTypes = [
     { id: 'website', name: 'Website', icon: GlobeAltIcon },
@@ -10,7 +11,7 @@ const KepWixVerification = () => {
   ];
 
   const [selectedType, setSelectedType] = useState(channelTypes[0]);
-  const [inputValue, setInputValue] = useState('https://kepwix.com');
+  const [inputValue, setInputValue] = useState(SITE_ORIGIN);
 
   return (
     // Main Container - exact background color and centered layout
@@ -22,19 +23,19 @@ const KepWixVerification = () => {
           <p className="text-[#6C7A8A]">Make sure you are on the official website</p>
           <div className="flex items-center gap-2 bg-[#F1F3F6] border border-[#E2E8F0] px-4 py-1.5 rounded-full text-[#4F5B6A] shadow-inner-sm">
             <LockClosedIcon className="w-4 h-4 text-[#ABB3C1]" />
-            <span className="font-medium text-[13px]">https://kepwix.com</span>
+            <span className="font-medium text-[13px]">{SITE_ORIGIN}</span>
           </div>
         </div>
 
         {/* --- Main Heading --- */}
         <h1 className="text-3xl md:text-[36px] font-extrabold leading-tight mb-6 text-[#0A1A31]">
-          Verification of KepWixs<br />
+          Verification of {SITE_POSSESSIVE}<br />
           communication channels
         </h1>
 
         {/* --- Description Text --- */}
         <p className="max-w-xl mx-auto text-sm leading-[1.6] text-[#6C7A8A] mb-10 font-normal">
-          To prevent fraud, we have created a page to verify KepWixs channels and business accounts. 
+          To prevent fraud, we have created a page to verify {SITE_POSSESSIVE} channels and business accounts. 
           Below you can check all official communication channels: social media groups, websites, 
           email addresses, and business accounts.
         </p>
@@ -85,7 +86,7 @@ const KepWixVerification = () => {
                 type="text" 
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder="https://kepwix.com"
+                placeholder={SITE_ORIGIN}
                 className="w-full h-[52px] bg-white border border-[#E2E8F0] rounded-xl px-5 text-sm font-medium text-[#1E293B] shadow-sm placeholder-[#ABB3C1] focus:ring-1 focus:ring-blue-200 focus:border-[#CDD6E1] outline-none"
               />
             </div>
@@ -106,4 +107,4 @@ const KepWixVerification = () => {
   );
 };
 
-export default KepWixVerification;
+export default ChannelVerification;

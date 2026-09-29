@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { API } from "../config/api";
+import { SITE_NAME } from "../config/site";
  
 const NAV_DROPDOWNS = {
   Trading: [
@@ -37,12 +38,12 @@ const NAV_DROPDOWNS = {
     { icon: "🎁", title: "Referral program", desc: "Earn rewards for inviting friends", path: "/referral" },
     { icon: "🛡️", title: "Security", desc: "2FA, anti-phishing and cold storage", path: "/security" },
     { icon: "🪪", title: "Identity verification", desc: "Complete KYC to raise your limits", path: "/kyc" },
-    { icon: "💻", title: "API management", desc: "Build with the KepWix trading API", path: "/api-management" },
+    { icon: "💻", title: "API management", desc: `Build with the ${SITE_NAME} trading API`, path: "/api-management" },
   ],
   Documentation: [
     { icon: "📖", title: "Help center", desc: "Guides and answers to common questions", path: "/" },
     { icon: "🧩", title: "API docs", desc: "Integrate with our trading API", path: "/" },
-    { icon: "🗺️", title: "What is KepWix?", desc: "Learn about our platform and mission", path: "/about" },
+    { icon: "🗺️", title: `What is ${SITE_NAME}?`, desc: "Learn about our platform and mission", path: "/about" },
     { icon: "🚀", title: "Getting started", desc: "Deposit, buy and trade in minutes", path: "/overview" },
   ],
 };
@@ -222,7 +223,7 @@ export default function Navbar() {
     // BTC price alag se — upar wala price fetch sirf unhi coins ka hota hai
     // jinse user ke paas balance hai. Agar user ke paas BTC hi nahi hai to
     // us list me bitcoin nahi aata, aur BTC price milti hi nahi.
-    fetch(`https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd`)
+    fetch(`${API}/api/price?ids=bitcoin`)
       .then(r => r.json())
       .then(p => setBtcPrice(p?.bitcoin?.usd || 0))
       .catch(() => setBtcPrice(0));
@@ -232,7 +233,7 @@ export default function Navbar() {
         const coinFields = Object.keys(d).filter(k => k.endsWith("Balance") && k !== "USDTBalance");
         const ids = coinFields.map(k => SYMBOL_TO_ID[k.replace("Balance", "")] || k.replace("Balance", "").toLowerCase()).filter(Boolean).join(",");
         if (ids) {
-          fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`)
+          fetch(`${API}/api/price?ids=${ids}`)
             .then(r => r.json())
             .then(prices => {
               let total = d.balance || 0;

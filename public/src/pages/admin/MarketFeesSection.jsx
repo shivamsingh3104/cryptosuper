@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { API, headers } from "../../config/api";
 
-const COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=50&page=1&sparkline=false";
+const COINGECKO_URL = `${API}/api/prices?limit=50`;
 
 export default function MarketFeesSection() {
   const [fees, setFees] = useState({});
@@ -18,7 +18,7 @@ export default function MarketFeesSection() {
     ])
     .then(([feesData, coinsData]) => {
       setFees(feesData || {});
-      const coins = (coinsData || []).map(c => ({
+      const coins = (coinsData?.coins || []).map(c => ({
         id: c.id,
         name: c.name,
         symbol: c.symbol.toUpperCase(),

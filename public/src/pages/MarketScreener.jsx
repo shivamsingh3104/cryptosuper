@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { API } from "../config/api";
 
 const EXCHANGES = ["BINANCE","BYBIT","OKX","KUCOIN","KRAKEN","COINBASE","BITFINEX","HUOBI","GATE"];
 
@@ -58,8 +59,8 @@ export default function MarketScreener() {
 
   const fetchData = useCallback(async () => {
     try {
-      const res  = await fetch("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=volume_desc&per_page=25&page=1&sparkline=false&price_change_percentage=24h");
-      const data = await res.json();
+      const res  = await fetch(`${API}/api/prices?limit=25`);
+      const data = (await res.json()).coins || [];
       const built = buildRows(data);
       setBase(built); setRows(built); setLastUpd(new Date());
     } catch {}

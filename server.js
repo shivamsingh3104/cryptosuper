@@ -27,7 +27,7 @@ dotenv.config();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 5001;
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@kepwix.com";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@example.com";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "REDACTED";
 
 const USERS_FILE = join(__dirname, "data", "users.json");
@@ -65,8 +65,8 @@ function toMillis(value) {
 // ── Express app ─────────────────────────────────────────────
 const app = express();
 
-// FRONTEND_URL me comma-separated multiple origins daal sakte ho,
-// e.g. "https://kepwix.com,https://www.kepwix.com"
+// FRONTEND_URL accepts comma-separated multiple origins,
+// e.g. "https://example.com,https://www.example.com"
 const allowedOrigins = [
   ...(process.env.FRONTEND_URL || "http://localhost:3000")
     .split(",")
@@ -281,8 +281,8 @@ const LEGACY_ADMIN_TOKEN = "REDACTED";
 
 if (ALLOW_LEGACY_ADMIN_TOKEN) {
   console.warn(
-    "[SECURITY] ALLOW_LEGACY_ADMIN_TOKEN=true — shared-secret admin auth ON hai. " +
-      "Ye sirf turant bundle migrate karne ke liye hai, warna koi bhi admin ban sakta hai."
+    "[SECURITY] ALLOW_LEGACY_ADMIN_TOKEN=true — shared-secret admin auth is ENABLED. " +
+      "Use this only to migrate the bundle immediately, otherwise anyone can become an admin."
   );
 }
 
@@ -514,69 +514,324 @@ app.post("/api/admin/credit", requireAdmin, async (req, res) => {
   }
 });
 
-// ── COINGECKO PRICE PROXY (cached) ────────────────────────────
-// Pehle har page browser se seedha CoinGecko call karta tha — 9 alag endpoints,
-// kuch `per_page=250` jaise bhaari. Free tier ise aggressively rate-limit karta
-// hai (429/CORS ERR_FAILED), aur jab call fail hoti thi to page ka coin list
-// khaali ho jata tha. Usse user ka BALANCE bhi render nahi hota tha, kyunki
-// rows CoinGecko list se banti thi — balance API se aata tha. Yaani price feed
-// fail hone par user ko apna paisa invisible dikhta tha.
+// ── PRICE FEED (shared cache + fallback) ───────────────────────────────
 //
-// Isliye price ab server side se aati hai, ek jagah cache hoti hai, aur browser
-// ko CORS/rate-limit ka koi risk nahi. Coin list khaali hone par bhi client
-// local registry se rows bana leta hai.
+// Pehle har page browser se seedha CoinGecko call karta tha — 8 alag call
+// sites, kuch `per_page=250` jaise bhaari. Do problems the:
+//   1. CoinGecko ka free tier per-IP rate-limit karta hai (429 +
+//      `retry-after`). Har browser apna call karta tha, to N users = N×
+//      upstream requests aur quota khatam ho jata tha.
+//   2. Server proxy bhi cache ko `ids` combination se key karta tha, to har
+//      alag page apna alag upstream call maar raha tha — ek hi 60s TTL ke
+//      andar 7-8 CoinGecko calls.
+//
+// Isliye ab:
+//   - EK shared snapshot (top coins) cache hota hai, aur `?ids=` se usi
+//     snapshot ko filter karte hain. Yaani 45s me poori app ke liye 1 call.
+//   - Single-flight: ek saath aaye 50 requests ho to bhi sirf 1 upstream call.
+//   - 429 par `retry-after` maan kar backoff — limited hone par quota burn
+//     nahi hota.
+//   - Binance fallback: CoinGecko 429 / down ho to bhi live price milta hai.
+//     Binance ka public endpoint unmetered hai aur ~sub-second hai.
 
-const PRICE_TTL_MS = 60_000;
-let priceCache = { at: 0, data: null };
+const PRICE_TTL_MS = 45_000;
+const SPARKLINE_TTL_MS = 5 * 60_000; // 7d hourly sparkline slowly badalta hai
+const UPSTREAM_TIMEOUT_MS = 6000;
 
+let priceSnapshot = null;    // { at, source, list: [...coins] }
+let priceInFlight = null;    // single-flight promise
+let priceRetryAfter = 0;     // epoch ms — 429 backoff
+let sparklineCache = null;   // { at, byId: {id: {price: []}} }
+let sparklineInFlight = null;
+
+// CoinGecko id -> Binance USDT pair, fallback path ke liye.
+//
+// Ye EXPLICIT map hai, COIN_IDS se derive karna galat hai: Binance har asset
+// ke liye ticker symbol CoinGecko se alag hota hai (XRP ka Binance pair
+// `XRPUSDT` hai, `RIPPLEUSDT` nahi — wo 400 deta hai). `tether` chhoda gaya
+// hai (uska koi USDT pair nahi, aur price hamesha ~1 rehti hai).
+const BINANCE_PAIR = {
+  // App ka apna registry
+  bitcoin: "BTCUSDT", ethereum: "ETHUSDT", "usd-coin": "USDCUSDT",
+  binancecoin: "BNBUSDT", solana: "SOLUSDT", ripple: "XRPUSDT",
+  dogecoin: "DOGEUSDT", cardano: "ADAUSDT", tron: "TRXUSDT",
+  avalanche: "AVAXUSDT", chainlink: "LINKUSDT", polkadot: "DOTUSDT",
+  uniswap: "UNIUSDT", litecoin: "LTCUSDT", near: "NEARUSDT",
+  aptos: "APTUSDT", sui: "SUIUSDT", "fetch-ai": "FETUSDT", pepe: "PEPEUSDT",
+  "shiba-inu": "SHIBUSDT", toncoin: "TONUSDT", "internet-computer": "ICPUSDT",
+  "bitcoin-cash": "BCHUSDT", "wrapped-bitcoin": "WBTCUSDT", matic: "MATICUSDT",
+
+  // MarketCap / screener jaise pages ke extra top coins
+  "avalanche-2": "AVAXUSDT", stellar: "XLMUSDT", "ethereum-classic": "ETCUSDT",
+  hedera: "HBARUSDT", filecoin: "FILUSDT", cosmos: "ATOMUSDT",
+  "the-graph": "GRTUSDT", "render-token": "RENDERUSDT",
+  "injective-protocol": "INJUSDT", aave: "AAVEUSDT", algorand: "ALGOUSDT",
+  vechain: "VETUSDT", elrond: "EGLDUSDT", decentraland: "MANAUSDT",
+  hyperliquid: "HYPEUSDT", "the-open-network": "TONUSDT",
+  "matic-network": "MATICUSDT", arbitrum: "ARBUSDT", optimism: "OPUSDT",
+  "polygon-ecosystem-token": "POLUSDT", harmony: "ONEUSDT", zilliqa: "ZILUSDT",
+  "icon": "ICXUSDT", "ontology": "ONTUSDT", neo: "NEOUSDT", eos: "EOSUSDT",
+  "theta-token": "THETAUSDT", fantom: "FTMUSDT", flow: "FLOWUSDT",
+  "pancakeswap-token": "CAKEUSDT", "compound-governance-token": "COMPUSDT",
+  maker: "MKRUSDT",
+  // MarketCap.jsx `xrp` bhejta hai, jabki CoinGecko ka id `ripple` hai — alias.
+  xrp: "XRPUSDT",
+};
+
+// Binance spot par nahi hai (Cronos delisted, OKB/LEO nahi listed), isliye inka
+// koi pair nahi. CoinGecko healthy hote hi ye waise bhi aa jaate hain.
+const BINANCE_PAIR_EXCLUDED = new Set(["cronos", "okb", "leo-token"]);
+
+// Ek hi Binance pair kai CoinGecko ids ke liye ho sakta hai (AVAXUSDT ->
+// `avalanche` aur `avalanche-2` dono). Isliye pair -> ids ki LIST banao, warna
+// dusra id pehla overwrite kar deta tha aur `toncoin`/`avalanche` gayab ho
+// jaate the.
+const IDS_FOR_PAIR = {};
+for (const [id, pair] of Object.entries(BINANCE_PAIR)) {
+  (IDS_FOR_PAIR[pair] ||= []).push(id);
+}
+
+function upstreamHeaders() {
+  return { accept: "application/json" };
+}
+
+// ── Upstream fetchers ────────────────────────────────────────────────
 async function fetchCoinGeckoMarkets(ids, perPage = 250) {
   const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=${perPage}&page=1&sparkline=false`
     + (ids && ids.length ? `&ids=${encodeURIComponent(ids.join(","))}` : "");
-  const r = await fetch(url, {
-    headers: { accept: "application/json" },
-    signal: AbortSignal.timeout(8000),
-  });
+  const r = await fetch(url, { headers: upstreamHeaders(), signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) });
+
+  if (r.status === 429) {
+    const ra = Number(r.headers.get("retry-after"));
+    priceRetryAfter = Date.now() + (Number.isFinite(ra) && ra > 0 ? ra * 1000 : 60_000);
+    throw new Error("CoinGecko 429 (rate limited)");
+  }
   if (!r.ok) throw new Error(`CoinGecko ${r.status}`);
+
   const data = await r.json();
   if (!Array.isArray(data)) throw new Error("CoinGecko: bad payload");
   return data;
 }
 
-// GET /api/prices?ids=bitcoin,ethereum   (ids optional = top 250)
+// Binance fallback — ek call me saari pairs ka 24h ticker.
+async function fetchBinanceTickers() {
+  const pairs = Object.values(BINANCE_PAIR);
+  if (!pairs.length) return [];
+
+  // Binance batch endpoint poori tarah fail karta hai agar EVEN EK symbol
+  // listing me na ho (400 Bad Symbol). Isliye pehle ek batch call, aur fail
+  // ho to per-symbol calls — taaki ek unknown pair poora fallback maar na de.
+  let data = null;
+  try {
+    const url = `https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(pairs))}`;
+    const r = await fetch(url, { headers: upstreamHeaders(), signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) });
+    if (!r.ok) throw new Error(`Binance ${r.status}`);
+    const body = await r.json();
+    if (Array.isArray(body)) data = body;
+  } catch { /* batch fail -> per-symbol below */ }
+
+  if (!data) {
+    const settled = await Promise.allSettled(pairs.map((p) =>
+      fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${p}`, {
+        headers: upstreamHeaders(),
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+    ));
+    data = settled.filter((s) => s.status === "fulfilled" && s.value).map((s) => s.value);
+  }
+
+  if (!Array.isArray(data)) throw new Error("Binance: bad payload");
+
+  // Binance symbol -> CoinGecko ids (ek pair ke kai ids ho sakte hain)
+  const idsForPair = IDS_FOR_PAIR;
+
+  const out = [];
+  for (const t of data) {
+    const ids = idsForPair[t.symbol];
+    if (!ids) continue;
+    const base = t.symbol.replace(/USDT$/, "");
+    for (const id of ids) {
+      out.push({
+        id,
+        symbol: base,
+        name: base,
+        image: null,             // Binance image nahi deta — UI fallback icon use karti hai
+        current_price: Number(t.lastPrice),
+        high_24h: Number(t.highPrice),
+        low_24h: Number(t.lowPrice),
+        total_volume: Number(t.quoteVolume),
+        market_cap: null,        // Binance market cap nahi deta
+        price_change_percentage_24h: Number(t.priceChangePercent),
+      });
+    }
+  }
+  return out;
+}
+
+// Stablecoins ka Binance USDT pair nahi hota, aur upar wale maps me bhi
+// `tether` jaanbujh kar chhoda gaya hai. CoinGecko down hone par inki row
+// poori tarah gayab ho jaati thi. Price ~1 hai hi, to synthetic entry daal
+// dete hain — UI me row bani rehti hai.
+const STABLE_IDS = {
+  tether: "USDT", "usd-coin": "USDC", "first-digital-usd": "FDUSD",
+  "usd-coin-bnb-chain": "USDC-BNB", "tether-bnb-chain": "USDT-BNB",
+};
+
+function stableCoinFallback() {
+  return Object.entries(STABLE_IDS).map(([id, symbol]) => ({
+    id,
+    symbol,
+    name: symbol,
+    image: null,
+    current_price: 1,
+    high_24h: 1.02,
+    low_24h: 0.99,
+    total_volume: null,
+    market_cap: null,
+    price_change_percentage_24h: 0.01,
+  }));
+}
+
+// ── Shared snapshot (single-flight) ──────────────────────────────────
+function snapshotIsFresh() {
+  return priceSnapshot && Date.now() - priceSnapshot.at < PRICE_TTL_MS;
+}
+
+async function refreshSnapshot() {
+  if (snapshotIsFresh()) return priceSnapshot;
+
+  // Ek hi upstream call, chahe 50 users ek saath aayein.
+  if (priceInFlight) return priceInFlight;
+
+  priceInFlight = (async () => {
+    // Rate-limited ho to nayi CoinGecko call ki koshish hi mat karo —
+    // `age` ke saath `stale` bhi mark karo taaki client jaanta rahe ki
+    // ye purana data hai.
+    if (Date.now() < priceRetryAfter && priceSnapshot) {
+      return { ...priceSnapshot, stale: true, error: "CoinGecko rate limited" };
+    }
+
+    try {
+      const list = await fetchCoinGeckoMarkets([], 250);
+      priceSnapshot = { at: Date.now(), source: "coingecko", list };
+      priceRetryAfter = 0;
+      return priceSnapshot;
+    } catch (err) {
+      // CoinGecko fail / limited -> Binance se live price le lo.
+      try {
+        const list = await fetchBinanceTickers();
+        const merged = [...list, ...stableCoinFallback()];
+        if (merged.length) {
+          // Binance snapshot thoda kam coins deta hai, isliye pehle wala
+          // CoinGecko data usme merge kar dete hain (market cap / image bacha rahe).
+          const byId = new Map((priceSnapshot?.list || []).map((c) => [c.id, c]));
+          for (const c of merged) {
+            const prev = byId.get(c.id);
+            byId.set(c.id, prev ? { ...prev, ...c, market_cap: c.market_cap ?? prev.market_cap, image: c.image ?? prev.image } : c);
+          }
+          priceSnapshot = { at: Date.now(), source: "binance", list: [...byId.values()] };
+          return priceSnapshot;
+        }
+        throw err;
+      } catch (binanceErr) {
+        // Dono fail. Purana data bhej do — khaali se behtar hai.
+        if (priceSnapshot) {
+          priceSnapshot = { ...priceSnapshot, stale: true, error: String(binanceErr.message || binanceErr) };
+          return priceSnapshot;
+        }
+        throw binanceErr;
+      }
+    }
+  })().finally(() => { priceInFlight = null; });
+
+  return priceInFlight;
+}
+
+// ── Sparkline (alag cache, lamba TTL) ───────────────────────────────
+async function fetchSparklines(ids) {
+  if (sparklineCache && Date.now() - sparklineCache.at < SPARKLINE_TTL_MS) return sparklineCache;
+  if (sparklineInFlight) return sparklineInFlight;
+
+  sparklineInFlight = (async () => {
+    const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${encodeURIComponent(ids.join(","))}&sparkline=true&per_page=${Math.max(ids.length, 25)}&page=1&price_change_percentage=24h`;
+    const r = await fetch(url, { headers: upstreamHeaders(), signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) });
+    if (!r.ok) throw new Error(`CoinGecko ${r.status}`);
+    const data = await r.json();
+    if (!Array.isArray(data)) throw new Error("CoinGecko: bad payload");
+
+    const byId = {};
+    for (const c of data) byId[c.id] = { price: c.sparkline_in_7d?.price || [] };
+    sparklineCache = { at: Date.now(), byId };
+    return sparklineCache;
+  })().finally(() => { sparklineInFlight = null; });
+
+  return sparklineInFlight;
+}
+
+function pickCoins(snapshot, ids) {
+  if (!snapshot || !snapshot.list) return [];
+  if (!ids.length) return snapshot.list;
+  const want = new Set(ids);
+  return snapshot.list.filter((c) => want.has(c.id));
+}
+
+// GET /api/prices?ids=bitcoin,ethereum&sparkline=0|1&limit=25
+// `coins` array CoinGecko /coins/markets jaisa shape rakhta hai, aur `prices`
+// object-wala shape bhi deta hai — purane clients dono chalate hain.
 app.get("/api/prices", async (req, res) => {
   const ids = String(req.query.ids || "")
     .split(",").map((s) => s.trim()).filter(Boolean).slice(0, 250);
-
-  // ids ke saath cache mat karo — har alag combination ke liye alag key chahiye.
-  const cacheKey = ids.length ? ids.slice().sort().join(",") : "__all__";
-  if (priceCache.data && priceCache.key === cacheKey && Date.now() - priceCache.at < PRICE_TTL_MS) {
-    return res.json({ prices: priceCache.data, cached: true });
-  }
+  const limit = Math.min(Number(req.query.limit) || (ids.length ? ids.length : 250), 250);
+  const wantSparkline = String(req.query.sparkline || "") === "1" || String(req.query.sparkline) === "true";
 
   try {
-    const data = await fetchCoinGeckoMarkets(ids, ids.length ? Math.max(ids.length, 25) : 250);
+    const snap = await refreshSnapshot();
+    let coins = pickCoins(snap, ids);
+    if (limit) coins = coins.slice(0, limit);
+
+    if (wantSparkline && coins.length) {
+      // Sparkline best-effort: fail ho jaye to price waise hi bhej do.
+      try {
+        const sl = await fetchSparklines(coins.map((c) => c.id));
+        coins = coins.map((c) => ({ ...c, sparkline_in_7d: sl.byId[c.id] || { price: [] } }));
+      } catch { /* keep prices */ }
+    }
+
+    // Hamesha `sparkline_in_7d` field rakho, warna client ka shape expectations
+    // fail ho jata hai jab upstream sparkline nahi de paya.
+    coins = coins.map((c) => (c.sparkline_in_7d ? c : { ...c, sparkline_in_7d: { price: [] } }));
+
     const prices = {};
-    for (const c of data) {
-      prices[c.id] = {
-        id: c.id,
-        symbol: (c.symbol || "").toUpperCase(),
-        name: c.name,
-        image: c.image,
-        current_price: c.current_price,
-        market_cap: c.market_cap,
-        total_volume: c.total_volume,
-        price_change_percentage_24h: c.price_change_percentage_24h,
-      };
-    }
-    priceCache = { at: Date.now(), key: cacheKey, data: prices };
-    res.json({ prices, cached: false });
+    for (const c of coins) prices[c.id] = c;
+
+    res.json({
+      coins,
+      prices,
+      cached: true,
+      source: snap.source,
+      stale: !!snap.stale,
+      age: Date.now() - snap.at,
+      ...(snap.error ? { error: snap.error } : {}),
+    });
   } catch (err) {
-    // Price fail ho jaye to stale cache bhej do (purana data better hai kisi
-    // data se), aur error status mat bhejo — warna UI rows hi khaali kar deta hai.
-    if (priceCache.data) {
-      return res.json({ prices: priceCache.data, cached: true, stale: true, error: err.message });
+    res.status(200).json({ coins: [], prices: {}, cached: false, error: String(err.message || err) });
+  }
+});
+
+// GET /api/price?ids=bitcoin,ethereum
+// CoinGecko /simple/price ka exact shape — `{ "bitcoin": { "usd": 12345 } }`
+app.get("/api/price", async (req, res) => {
+  const ids = String(req.query.ids || "")
+    .split(",").map((s) => s.trim()).filter(Boolean).slice(0, 250);
+  try {
+    const snap = await refreshSnapshot();
+    const out = {};
+    for (const c of pickCoins(snap, ids)) {
+      if (c.current_price != null) out[c.id] = { usd: c.current_price };
     }
-    res.status(200).json({ prices: {}, cached: false, error: err.message });
+    res.json(out);
+  } catch (err) {
+    res.status(200).json({});
   }
 });
 
@@ -1005,6 +1260,6 @@ app.put("/api/admin/trades/:id/reject", requireAdmin, async (req, res) => {
 
 // ── Start ────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`✅ KepWix Backend running on http://localhost:${PORT}`);
+  console.log(`✅ Backend running on http://localhost:${PORT}`);
   console.log(`   Admin: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}`);
 });

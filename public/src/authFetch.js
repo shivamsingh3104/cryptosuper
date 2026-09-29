@@ -39,7 +39,7 @@ window.fetch = async function (input, init = {}) {
             localStorage.removeItem("adminToken");
             localStorage.removeItem("adminAuth");
             try {
-              window.dispatchEvent(new Event("kepwix:admin-session-expired"));
+              window.dispatchEvent(new Event("app:admin-session-expired"));
             } catch { /* ignore */ }
           }
           return res;

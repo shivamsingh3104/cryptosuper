@@ -347,8 +347,8 @@ export default function WalletDashboard() {
               </h2>
             </div>
             <p className="text-xs text-amber-700 mb-3">
-              Balance tabhi change hota hai jab admin approve karta hai. Withdrawal ka amount
-              approve tak reserve rehta hai.
+              Balance only changes after an admin approves it. The withdrawal amount
+              stays reserved until approval.
             </p>
             <div className="space-y-2">
               {pendingRequests.map(r => (

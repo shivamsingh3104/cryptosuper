@@ -16,6 +16,7 @@ node_modules/
 
 # Build output
 public/dist/
+public/build/
 
 # Runtime data (real user emails + session tokens - must never be committed)
 data/

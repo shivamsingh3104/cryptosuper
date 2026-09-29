@@ -189,7 +189,7 @@ const save = async () => {
         <div>
           <h2 className="text-2xl font-extrabold text-[#1b2559]">Page Builder</h2>
           <p className="text-sm text-[#a3aed0] font-medium">
-            Jodit editor ke saath page content manage karo
+            Manage page content with the Jodit editor
           </p>
         </div>
         <button

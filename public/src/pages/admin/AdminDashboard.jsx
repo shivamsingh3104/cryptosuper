@@ -69,8 +69,8 @@ export default function AdminDashboard() {
   // tha — event sun ke turant login screen par bhej dete hain.
   useEffect(() => {
     const onExpired = () => setAuthed(false);
-    window.addEventListener("kepwix:admin-session-expired", onExpired);
-    return () => window.removeEventListener("kepwix:admin-session-expired", onExpired);
+    window.addEventListener("app:admin-session-expired", onExpired);
+    return () => window.removeEventListener("app:admin-session-expired", onExpired);
   }, []);
 
   if (!authed) return <AdminLogin onLogin={() => setAuthed(true)} />;

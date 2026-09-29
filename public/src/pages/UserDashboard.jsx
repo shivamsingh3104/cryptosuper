@@ -190,7 +190,7 @@ export default function UserDashboard() {
               <div className="ud-security-item">
                 <div>
                   <div className="ud-security-title">Anti-Phishing Code</div>
-                  <div className="ud-security-desc">Set a code to verify KepWix emails</div>
+                  <div className="ud-security-desc">Set a code to verify account emails</div>
                 </div>
                 <button className="ud-enable-btn">Set Code</button>
               </div>

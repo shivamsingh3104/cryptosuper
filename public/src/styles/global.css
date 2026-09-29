@@ -21,8 +21,10 @@ button { cursor: pointer; font-family: inherit; }
   z-index: 200;
   border-bottom: 1px solid #1e1e1e;
 }
+/* Content box matches .footer-inner exactly (global.css:155) so the header and
+   footer share the same left/right edges at every breakpoint. */
 .navbar-inner {
-  max-width: 1440px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 0 48px;
   height: 100%;
@@ -543,25 +545,18 @@ tbody td { padding: 13px 16px; font-size: 13.5px; }
   .signup-promo { max-width: 340px; }
 }
 
-/* Fit the longer nav row on 1024–1439px screens (8 nav items + logged-in cluster).
-   The brand name stays visible — space is reclaimed by tightening, not hiding. */
+/* 1024–1439px: the container is viewport-bound, so reclaim horizontal padding.
+   Font sizes and gaps already live in the base rules (the 1280px cap means
+   the roomy tier never applies above 1280px). */
 @media (min-width: 1024px) and (max-width: 1439px) {
-  .navbar-inner { padding: 0 16px; gap: 6px; }
-  .navbar-logo { margin-right: 6px; gap: 6px; }
-  .navbar-logo-text { max-width: 120px; }
-  .nav-btn { padding: 0 5px; font-size: 12.5px; }
-  .btn-login, .btn-signup { padding-left: 11px; padding-right: 11px; font-size: 12.5px; }
+  .navbar-inner, .footer-inner { padding: 0 16px; }
   .nb-deposit-btn { padding: 7px 11px; }
   .nb-deposit-label { display: none; }
-  .nb-text-btn { font-size: 12.5px; padding: 4px 4px; }
-  .navbar-right { gap: 6px; }
-  .navbar-lang { margin-left: 0; padding: 0 7px; gap: 4px; }
-  .nav-dropdown { min-width: 260px; }
 }
 
 /* Tightest desktop tier — still fits all 8 items + logged-in cluster */
 @media (min-width: 1024px) and (max-width: 1151px) {
-  .navbar-inner { padding: 0 10px; gap: 4px; }
+  .navbar-inner, .footer-inner { padding: 0 10px; gap: 4px; }
   .navbar-logo { margin-right: 4px; }
   .navbar-logo-text { max-width: 100px; }
   .navbar-right { gap: 4px; }
@@ -578,9 +573,6 @@ tbody td { padding: 13px 16px; font-size: 13.5px; }
   .hamburger { display: flex; }
   .navbar-lang { display: none; }
   .btn-login, .btn-signup { display: none; }
-  .navbar-inner { padding: 0 20px; }
-
-  .footer-inner { padding: 0 20px; }
   .footer-top { flex-direction: column; gap: 28px; }
   .footer-cols { grid-template-columns: repeat(2, 1fr); gap: 20px; }
   .footer-bottom { padding: 16px 20px; }
@@ -2284,7 +2276,7 @@ tbody td { padding: 13px 16px; font-size: 13.5px; }
   .navbar-links { display: none; }
   .hamburger { display: flex !important; }
   .navbar-lang { display: none; }
-  .navbar-inner { padding: 0 16px; }
+  .navbar-inner, .footer-inner { padding: 0 16px; }
   .btn-login, .btn-signup { display: none; }
   .nb-deposit-btn, .nb-text-btn, .nb-avatar-circle { display: none; }
 }
@@ -2350,7 +2342,7 @@ tbody td { padding: 13px 16px; font-size: 13.5px; }
 
 /* Footer responsive */
 @media (max-width: 640px) {
-  .footer-inner { padding: 0 16px; }
+  .navbar-inner, .footer-inner { padding: 0 16px; }
   .footer-cols { grid-template-columns: 1fr 1fr; gap: 16px; }
   .footer-bottom { padding: 14px 16px; }
   .footer-top { gap: 20px; }

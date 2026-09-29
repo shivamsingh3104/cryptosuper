@@ -48,13 +48,13 @@ export default function CreditUserSection() {
       if (usersRes.status === 401 || balRes.status === 401) {
         setUsers([]);
         setBalances({});
-        showMsg("err", "Session expire ho gaya. Dobara login karein.");
+        showMsg("err", "Your session has expired. Please log in again.");
         return;
       }
       if (!usersRes.ok) {
         setUsers([]);
         setBalances({});
-        showMsg("err", (await usersRes.json())?.error || "Users load nahi ho sake");
+        showMsg("err", (await usersRes.json())?.error || "Could not load users");
         return;
       }
 
@@ -65,7 +65,7 @@ export default function CreditUserSection() {
     } catch {
       setUsers([]);
       setBalances({});
-      showMsg("err", "Backend se connect nahi ho paaya");
+      showMsg("err", "Could not connect to the backend");
     } finally {
       setLoading(false);
     }
@@ -119,13 +119,13 @@ export default function CreditUserSection() {
   const submit = async (e) => {
     e.preventDefault();
 
-    if (!uid) return showMsg("err", "Pehle user choose karo");
+    if (!uid) return showMsg("err", "Please select a user first");
     const value = Number(amount);
     if (!Number.isFinite(value) || value <= 0) {
-      return showMsg("err", "Amount 0 se zyada honi chahiye");
+      return showMsg("err", "Amount must be greater than 0");
     }
     if (!window.confirm(
-      `${fmtNum(value)} ${coin} → ${selected?.name || selected?.email}?\n\nBalance turant update ho jayega.`
+      `${fmtNum(value)} ${coin} → ${selected?.name || selected?.email}?\n\nThe balance will update immediately.`
     )) {
       return;
     }
@@ -148,7 +148,7 @@ export default function CreditUserSection() {
         await Promise.all([fetchData(), fetchHistory()]);
       }
     } catch {
-      showMsg("err", "Server error. Dobara try karo.");
+      showMsg("err", "Server error. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -216,9 +216,9 @@ export default function CreditUserSection() {
       </div>
 
       <p style={{ margin: "0 0 1.25rem", color: "#64748b", fontSize: "0.85rem" }}>
-        User deposit button khud nahi daba sakta — paisa aap yahan se bhejte ho.
-        Credit karte hi user ka balance update ho jata hai aur uski history me
-        record aa jata hai.
+        Users cannot credit themselves — you send funds from here. Once credited,
+        the user's balance updates immediately and the transaction is added to
+        their history.
       </p>
 
       <div
@@ -277,13 +277,13 @@ export default function CreditUserSection() {
             )}
             {!loading && users.length === 0 && (
               <p style={{ fontSize: "0.75rem", color: "#dc2626", margin: "0.35rem 0 0" }}>
-                Koi user nahi mila. Agar aaphe login kiya tha to page refresh karke
-                dobara login karein.
+                No users found. If you were logged in, please refresh the page and
+                log in again.
               </p>
             )}
             {!loading && users.length > 0 && filtered.length === 0 && (
               <p style={{ fontSize: "0.75rem", color: "#b45309", margin: "0.35rem 0 0" }}>
-                Is search se koi user nahi mila.
+                No users match this search.
               </p>
             )}
           </div>
@@ -424,7 +424,7 @@ export default function CreditUserSection() {
         </h3>
         {history.length === 0 ? (
           <p style={{ color: "#94a3b8", fontSize: "0.85rem" }}>
-            Abhi koi credit nahi kiya gaya.
+            No credits have been made yet.
           </p>
         ) : (
           <div style={{ overflowX: "auto" }}>

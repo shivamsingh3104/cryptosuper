@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { API } from "../config/api";
 
 const PAIRS = [
   { id: "bitcoin",        ticker: "BTCUSDT" },
@@ -87,8 +88,8 @@ export default function TechnicalAnalysis() {
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${PAIRS.map(p=>p.id).join(",")}&order=market_cap_desc&sparkline=false&price_change_percentage=24h`);
-      const data = await res.json();
+      const res = await fetch(`${API}/api/prices?ids=${PAIRS.map(p=>p.id).join(",")}`);
+      const data = (await res.json()).coins || [];
       const map = {};
       data.forEach(c => {
         const pair = PAIRS.find(p => p.id === c.id);

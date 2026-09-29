@@ -1,7 +1,7 @@
 {
-  "name": "kepwix-backend",
+  "name": "crypto-exchange-backend",
   "version": "1.0.0",
-  "description": "KepWix Backend API",
+  "description": "Backend API",
   "main": "server.js",
   "type": "module",
   "scripts": {

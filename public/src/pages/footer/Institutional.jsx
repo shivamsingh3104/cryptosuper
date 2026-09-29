@@ -1,5 +1,6 @@
 import React from "react";
 import { Users, BarChart3, MapPin, BriefcaseBusiness, Wallet, Globe, Lock, Bug, ShieldCheck, BadgeCheck } from "lucide-react";
+import { SITE_NAME } from "../../config/site";
 
 function DotMap({ className = "", style = {} }) {
   return (
@@ -114,7 +115,7 @@ export default function InstitutionalServices() {
             <h1 className="text-4xl md:text-5xl font-extrabold text-[#111] leading-tight">
               Institutional
               <br />
-              Services KepWix
+              Services {SITE_NAME}
             </h1>
 
             <p className="mt-4 text-[13px] md:text-sm text-[#6a6f7c] leading-relaxed">
@@ -155,7 +156,7 @@ export default function InstitutionalServices() {
       <section className="bg-[#0B0D14] px-6 md:px-12 pt-14 pb-16">
         <div className="max-w-7xl mx-auto text-center">
           <h2 className="text-2xl md:text-3xl font-bold text-white">
-            Strengthen your business with KepWix
+            Strengthen your business with {SITE_NAME}
           </h2>
           <p className="mt-2 text-sm text-gray-400 max-w-2xl mx-auto">
             We provide advanced solutions and personalized support to all types of institutional clients
@@ -203,7 +204,7 @@ export default function InstitutionalServices() {
         <div className="max-w-4xl mx-auto text-center">
           <h2 className="text-2xl md:text-3xl font-bold">Take a Step Towards Cooperation</h2>
           <p className="mt-2 text-xs md:text-sm text-gray-500">
-            Leave your contact information to start an effective and transparent partnership with KepWix
+            Leave your contact information to start an effective and transparent partnership with {SITE_NAME}
           </p>
 
           <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">

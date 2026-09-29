@@ -109,7 +109,7 @@ const ExchangePage = () => {
           style={{ background: "none", border: 0, color: "#dc2626", cursor: "pointer", font: "inherit" }}
           title="Click to retry"
         >
-          Balance load nahi hua — retry
+          Balance failed to load — retry
         </button>
       );
     }

@@ -1,5 +1,6 @@
 import React from "react";
 import { Flame, Coins, ArrowLeft, Info, ChevronRight } from "lucide-react";
+import { SITE_NAME } from "../config/site";
 
 const coinPositions = [
   { top: "8%", left: "4%", size: 38, rotate: 12 },
@@ -126,7 +127,7 @@ function TopCard({ title, subtitle, icon, button, muted = false }) {
   );
 }
 
-export default function KepWixLandingPage() {
+export default function CryptoLendingLandingPage() {
   return (
     <div className="min-h-screen overflow-hidden bg-[#f4f5f7] text-[#202020]">
       <div className="relative mx-auto max-w-[1440px] px-8 py-8 lg:px-10 lg:py-10">
@@ -134,9 +135,9 @@ export default function KepWixLandingPage() {
 
         <div className="relative">
           <header className="max-w-4xl pt-6">
-            <h1 className="text-[28px] font-extrabold tracking-tight text-[#2a2a2a] sm:text-[32px] lg:text-[38px]">Earn with KepWix</h1>
+            <h1 className="text-[28px] font-extrabold tracking-tight text-[#2a2a2a] sm:text-[32px] lg:text-[38px]">Earn with {SITE_NAME}</h1>
             <p className="mt-2 max-w-[760px] text-[10px] text-[#8a8d96] sm:text-[11px] lg:text-[12px]">
-              The KepWix family of investment instruments is a great way to generate passive income with a high interest rate
+              The {SITE_NAME} family of investment instruments is a great way to generate passive income with a high interest rate
             </p>
           </header>
 

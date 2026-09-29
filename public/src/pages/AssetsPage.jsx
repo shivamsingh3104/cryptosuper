@@ -61,7 +61,7 @@ export default function AssetsPage() {
       setAllBalances(d || {});
       balanceDone = true; done();
     }).catch(() => { balanceDone = true; done(); });
-    fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${COINS.map(c => c.id).join(",")}&vs_currencies=usd`).then(r => r.json()).then(d => {
+    fetch(`${API}/api/price?ids=${COINS.map(c => c.id).join(",")}`).then(r => r.json()).then(d => {
       console.log("ASSETS PRICES:", d);
       setPrices(d || {});
       pricesDone = true; done();

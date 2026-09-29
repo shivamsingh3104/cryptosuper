@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { API } from "../config/api";
 
-const CG = "https://api.coingecko.com/api/v3";
 const BINANCE = "https://api.binance.com/api/v3";
 
 const COIN_ID_MAP = {
@@ -46,19 +46,23 @@ export function useSpotData(symbol = "BTCUSDT") {
     setLoading(true);
     const sym = symbolRef.current;
     try {
-      const [cgRes, depthRes, tradesRes, klinesRes, tickerRes] = await Promise.all([
-        fetch(`${CG}/coins/markets?vs_currency=usd&ids=${coinId}&sparkline=false&price_change_percentage=24h`),
-        fetch(`${BINANCE}/depth?symbol=${sym}&limit=15`),
-        fetch(`${BINANCE}/trades?symbol=${sym}&limit=20`),
-        fetch(`${BINANCE}/klines?symbol=${sym}&interval=15m&limit=100`),
-        fetch(`${BINANCE}/ticker/24hr?symbol=${sym}`),
-      ]);
+      // CoinGecko ko server proxy se lo, aur usko Promise.all se alag rakho:
+      // pehle ye 429 de deta tha, jisse poora Promise.all reject ho jata tha
+      // aur chaaron Binance call (depth/trades/klines/ticker) ka data bhi
+      // kho jata tha. Ab price optional hai — Binance ka ticker uski jagah
+      // le leta hai.
+      const pricePromise = fetch(`${API}/api/prices?ids=${coinId}&limit=1`)
+        .then((r) => r.json())
+        .then((p) => p.coins?.[0] || null)
+        .catch(() => null);
 
-      const [cgData] = await cgRes.json();
-      const depthData = await depthRes.json();
-      const tradesData = await tradesRes.json();
-      const klinesData = await klinesRes.json();
-      const tickerData = await tickerRes.json();
+      const [cgData, depthData, tradesData, klinesData, tickerData] = await Promise.all([
+        pricePromise,
+        fetch(`${BINANCE}/depth?symbol=${sym}&limit=15`).then((r) => r.json()),
+        fetch(`${BINANCE}/trades?symbol=${sym}&limit=20`).then((r) => r.json()),
+        fetch(`${BINANCE}/klines?symbol=${sym}&interval=15m&limit=100`).then((r) => r.json()),
+        fetch(`${BINANCE}/ticker/24hr?symbol=${sym}`).then((r) => r.json()),
+      ]);
 
       const mid = cgData?.current_price || parseFloat(tickerData.lastPrice) || 0;
 

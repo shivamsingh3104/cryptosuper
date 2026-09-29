@@ -42,7 +42,7 @@ export default function useBalances(uid, { intervalMs = 20000 } = {}) {
         return;
       }
       if (!res.ok) {
-        setError("Server ne balance nahi diya. Page refresh karein.");
+        setError("The server did not return balances. Please refresh the page.");
         return;
       }
       const data = await res.json();
@@ -51,7 +51,7 @@ export default function useBalances(uid, { intervalMs = 20000 } = {}) {
         setError(null);
       }
     } catch {
-      setError("Backend se connect nahi ho paaya");
+      setError("Could not connect to the backend");
     } finally {
       inFlight.current = false;
       setLoading(false);
