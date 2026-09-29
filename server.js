@@ -590,6 +590,12 @@ const BINANCE_PAIR = {
 // koi pair nahi. CoinGecko healthy hote hi ye waise bhi aa jaate hain.
 const BINANCE_PAIR_EXCLUDED = new Set(["cronos", "okb", "leo-token"]);
 
+// `xrp` ek ALIAS hai (CoinGecko ka asli id `ripple` hai, par MarketCap.jsx
+// `xrp` bhejta hai). Alias ko sirf tab dikhana chahiye jab client explicitly
+// `?ids=xrp` maange — warna top-25 lists me `ripple` ke saath duplicate row
+// aa jati thi.
+const COIN_ALIASES = new Set(["xrp", "the-open-network", "matic-network"]);
+
 // Ek hi Binance pair kai CoinGecko ids ke liye ho sakta hai (AVAXUSDT ->
 // `avalanche` aur `avalanche-2` dono). Isliye pair -> ids ki LIST banao, warna
 // dusra id pehla overwrite kar deta tha aur `toncoin`/`avalanche` gayab ho
@@ -776,14 +782,71 @@ async function fetchSparklines(ids) {
   return sparklineInFlight;
 }
 
+// Sparkline ka Binance fallback. CoinGecko 429 ho to chart khaali aa jaati
+// thi (sparkline_in_7d.price = []). Binance klines se 7 din ki ghante-waari
+// asli history ban jaati hai, to chart bhi real data se bhari rehti hai.
+//
+// 7 din * 24 ghante = 168 candles, `interval=1h`. CoinGecko bhi `price` array
+// deta hai, isliye shape bilkul mila jaata hai.
+let binanceSparklineCache = null;
+let binanceSparklineInFlight = null;
+
+async function fetchSparklinesBinance(ids) {
+  if (binanceSparklineCache && Date.now() - binanceSparklineCache.at < SPARKLINE_TTL_MS) {
+    return binanceSparklineCache;
+  }
+  if (binanceSparklineInFlight) return binanceSparklineInFlight;
+
+  // Sirf un ids ka jinke Binance pair hai; baaki ke liye kuch nahi hai.
+  const wanted = ids.filter((id) => BINANCE_PAIR[id]);
+  if (!wanted.length) return { at: Date.now(), byId: {} };
+
+  binanceSparklineInFlight = (async () => {
+    const settled = await Promise.allSettled(wanted.map((id) => {
+      const pair = BINANCE_PAIR[id];
+      return fetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=1h&limit=168`, {
+        headers: upstreamHeaders(),
+        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((k) => (Array.isArray(k) ? { id, price: k.map((row) => Number(row[4])) } : null))
+        .catch(() => null);
+    }));
+
+    const byId = {};
+    for (const s of settled) {
+      if (s.status === "fulfilled" && s.value?.price?.length) byId[s.value.id] = { price: s.value.price };
+    }
+    binanceSparklineCache = { at: Date.now(), byId };
+    return binanceSparklineCache;
+  })().finally(() => { binanceSparklineInFlight = null; });
+
+  return binanceSparklineInFlight;
+}
+
 function pickCoins(snapshot, ids) {
   if (!snapshot || !snapshot.list) return [];
-  if (!ids.length) return snapshot.list;
+  // Alias (jaise `xrp`) sirf explicit request par — warna list me duplicate row.
+  if (!ids.length) return snapshot.list.filter((c) => !COIN_ALIASES.has(c.id));
   const want = new Set(ids);
   return snapshot.list.filter((c) => want.has(c.id));
 }
 
-// GET /api/prices?ids=bitcoin,ethereum&sparkline=0|1&limit=25
+// MarketScreener pehle CoinGecko se `order=volume_desc` maangta tha (top coins
+// BY VOLUME), jabki shared snapshot market-cap order me aata hai. Bas slice
+// karne se screener ko galat ranking milti. Isliye order yahan sort karte hain.
+const ORDERS = {
+  market_cap_desc: (a, b) => (b.market_cap ?? 0) - (a.market_cap ?? 0),
+  volume_desc: (a, b) => (b.total_volume ?? 0) - (a.total_volume ?? 0),
+  volume_asc: (a, b) => (a.total_volume ?? 0) - (b.total_volume ?? 0),
+};
+
+function sortCoins(coins, order) {
+  const cmp = ORDERS[order];
+  return cmp ? [...coins].sort(cmp) : coins;
+}
+
+// GET /api/prices?ids=bitcoin,ethereum&sparkline=0|1&limit=25&order=volume_desc
 // `coins` array CoinGecko /coins/markets jaisa shape rakhta hai, aur `prices`
 // object-wala shape bhi deta hai — purane clients dono chalate hain.
 app.get("/api/prices", async (req, res) => {
@@ -791,10 +854,12 @@ app.get("/api/prices", async (req, res) => {
     .split(",").map((s) => s.trim()).filter(Boolean).slice(0, 250);
   const limit = Math.min(Number(req.query.limit) || (ids.length ? ids.length : 250), 250);
   const wantSparkline = String(req.query.sparkline || "") === "1" || String(req.query.sparkline) === "true";
+  const order = String(req.query.order || "");
 
   try {
     const snap = await refreshSnapshot();
     let coins = pickCoins(snap, ids);
+    coins = sortCoins(coins, order);
     if (limit) coins = coins.slice(0, limit);
 
     if (wantSparkline && coins.length) {
@@ -802,7 +867,19 @@ app.get("/api/prices", async (req, res) => {
       try {
         const sl = await fetchSparklines(coins.map((c) => c.id));
         coins = coins.map((c) => ({ ...c, sparkline_in_7d: sl.byId[c.id] || { price: [] } }));
-      } catch { /* keep prices */ }
+      } catch {
+        // CoinGecko sparkline nahi de paya (429) — Binance klines se real
+        // 7d history bana lo. Empty chart se behtar.
+        try {
+          const bl = await fetchSparklinesBinance(coins.map((c) => c.id));
+          coins = coins.map((c) => ({
+            ...c,
+            sparkline_in_7d: c.sparkline_in_7d?.price?.length
+              ? c.sparkline_in_7d
+              : (bl.byId[c.id] || { price: [] }),
+          }));
+        } catch { /* chart blank rahega, price theek hai */ }
+      }
     }
 
     // Hamesha `sparkline_in_7d` field rakho, warna client ka shape expectations

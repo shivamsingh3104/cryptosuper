@@ -59,7 +59,7 @@ export default function MarketScreener() {
 
   const fetchData = useCallback(async () => {
     try {
-      const res  = await fetch(`${API}/api/prices?limit=25`);
+      const res  = await fetch(`${API}/api/prices?limit=25&order=volume_desc`);
       const data = (await res.json()).coins || [];
       const built = buildRows(data);
       setBase(built); setRows(built); setLastUpd(new Date());
