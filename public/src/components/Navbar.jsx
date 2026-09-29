@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { API } from "../config/api";
+import authedFetch from "../utils/authedFetch";
 import { SITE_NAME } from "../config/site";
  
 const NAV_DROPDOWNS = {
@@ -227,7 +228,7 @@ export default function Navbar() {
       .then(r => r.json())
       .then(p => setBtcPrice(p?.bitcoin?.usd || 0))
       .catch(() => setBtcPrice(0));
-    fetch(`${API}/api/users/balance?uid=${user.uid}`)
+    authedFetch(`/api/users/balance`)
       .then(r => r.json())
       .then(d => {
         const coinFields = Object.keys(d).filter(k => k.endsWith("Balance") && k !== "USDTBalance");

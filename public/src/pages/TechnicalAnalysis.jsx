@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { API } from "../config/api";
 
 const PAIRS = [
@@ -79,11 +79,14 @@ export default function TechnicalAnalysis() {
   const [loading,  setLoading]  = useState(true);
   const [tfIdx,    setTfIdx]    = useState({});
 
-  const genSignal = (price, chg) => {
-    const sell    = Math.floor(Math.random() * 12);
-    const buy     = Math.floor(Math.random() * 16);
-    const neutral = 26 - sell - buy;
-    return { sell, neutral: Math.max(0, neutral), buy };
+  // Real 24h price change se momentum-based signal. Random nahi — values
+  // sirf real price change par depend karte hain.
+  const genSignal = (chg) => {
+    const m = Math.max(-1, Math.min(1, (chg ?? 0) / 10));
+    const buy = Math.round((0.5 + 0.5 * m) * 20);
+    const sell = 20 - buy;
+    const neutral = Math.max(0, 26 - buy - sell);
+    return { sell, neutral, buy };
   };
 
   const fetchData = useCallback(async () => {
@@ -93,7 +96,7 @@ export default function TechnicalAnalysis() {
       const map = {};
       data.forEach(c => {
         const pair = PAIRS.find(p => p.id === c.id);
-        if (pair) map[pair.ticker] = genSignal(c.current_price, c.price_change_percentage_24h);
+        if (pair) map[pair.ticker] = genSignal(c.price_change_percentage_24h);
       });
       setSignals(map);
     } catch {}
@@ -112,7 +115,8 @@ export default function TechnicalAnalysis() {
       {loading && <div className="tool-loading"><div className="spinner" /><p>Loading technical signals…</p></div>}
 
       {!loading && (
-        <div className="ta-grid">
+        <>
+          <div className="ta-grid">
           {PAIRS.map(pair => {
             const sig = signals[pair.ticker] || { sell: 7, neutral: 9, buy: 10 };
             const tf  = tfIdx[pair.ticker] ?? 0;
@@ -141,6 +145,10 @@ export default function TechnicalAnalysis() {
             );
           })}
         </div>
+          <p style={{ marginTop: 12, fontSize: 11, color: "#8a8a8a" }}>
+            Signal is derived from each pair's real 24h price momentum and is indicative only — not investment advice.
+          </p>
+        </>
       )}
     </div>
   );

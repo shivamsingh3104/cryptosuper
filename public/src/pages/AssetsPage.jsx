@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { API } from "../config/api";
+import authedFetch from "../utils/authedFetch";
 
 const COINS = [
   { id: "bitcoin", symbol: "BTC", field: "BTCBalance" },
@@ -56,7 +57,7 @@ export default function AssetsPage() {
     if (!user?.uid) return;
     let balanceDone = false, pricesDone = false;
     const done = () => { if (balanceDone && pricesDone) setLoading(false); };
-    fetch(`${API}/api/users/balance?uid=${user.uid}`).then(r => r.json()).then(d => {
+    authedFetch(`/api/users/balance`).then(r => r.json()).then(d => {
       console.log("ASSETS BALANCE:", d);
       setAllBalances(d || {});
       balanceDone = true; done();
@@ -71,7 +72,7 @@ export default function AssetsPage() {
   useEffect(() => {
     if (!user?.uid) return;
     const interval = setInterval(() => {
-      fetch(`${API}/api/users/balance?uid=${user.uid}`)
+      authedFetch(`/api/users/balance`)
         .then(r => r.json())
         .then(d => setAllBalances(d || {}))
         .catch(() => {});
@@ -101,7 +102,7 @@ export default function AssetsPage() {
 
   const refetch = () => {
     if (!user?.uid) return;
-    fetch(`${API}/api/users/balance?uid=${user.uid}`).then(r => r.json()).then(d => {
+    authedFetch(`/api/users/balance`).then(r => r.json()).then(d => {
       console.log("ASSETS REFETCH:", d);
       setAllBalances(d || {});
     }).catch(() => {});

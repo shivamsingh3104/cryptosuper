@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useSpotData } from "../hooks/useSpotData";
 import { API } from "../config/api";
+import authedFetch from "../utils/authedFetch";
 
 const PAIRS = [
   "BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","ADAUSDT","DOGEUSDT","AVAXUSDT",
@@ -192,7 +193,7 @@ export default function Spot() {
   const fetchBalances = () => {
     if (!user?.uid) return;
     const base = selectedPair.replace("USDT", "");
-    fetch(`${API}/api/users/balance?uid=${user.uid}`)
+    authedFetch(`/api/users/balance`)
       .then(r => r.json()).then(d => {
         setUsdtBal(d.balance || 0);
         setBtcBal(d[base + "Balance"] || 0);
@@ -202,7 +203,7 @@ export default function Spot() {
   useEffect(() => {
     if (!user?.uid) return;
     fetchBalances();
-    fetch(`${API}/api/trading/history/${user.uid}`)
+    authedFetch(`/api/trading/history/${user.uid}`)
       .then(r => r.json()).then(d => setTradeHistory(d || [])).catch(() => {});
   }, [user?.uid, selectedPair]);
 
@@ -229,9 +230,8 @@ export default function Spot() {
     if (!amt || !prc) return alert("Fill all fields");
 
     try {
-      const res = await fetch(`${API}/api/trading/order`, {
+      const res = await authedFetch(`/api/trading/order`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: user.uid,
           pair: selectedPair.replace("USDT", "/USDT"),
@@ -246,9 +246,9 @@ export default function Spot() {
         alert(data.message);
         if (side === "Buy") { setBuyAmt(""); setBuyPrice(""); }
         else { setSellAmt(""); setSellPrice(""); }
-        fetch(`${API}/api/trading/history/${user.uid}`)
+        authedFetch(`/api/trading/history/${user.uid}`)
           .then(r => r.json()).then(d => setTradeHistory(d || [])).catch(() => {});
-        fetch(`${API}/api/users/balance?uid=${user.uid}`)
+        authedFetch(`/api/users/balance`)
           .then(r => r.json()).then(d => {
             setUsdtBal(d.balance || 0);
             setBtcBal(d[pairBase + "Balance"] || 0);

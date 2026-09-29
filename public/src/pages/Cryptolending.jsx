@@ -1,6 +1,11 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Flame, Coins, ArrowLeft, Info, ChevronRight } from "lucide-react";
 import { SITE_NAME } from "../config/site";
+import { useAuth } from "../context/AuthContext";
+import authedFetch from "../utils/authedFetch";
+
+const USD = (n) =>
+  n == null ? "—" : Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const coinPositions = [
   { top: "8%", left: "4%", size: 38, rotate: 12 },
@@ -34,7 +39,7 @@ function Coin({ top, left, size, rotate }) {
   );
 }
 
-function PhoneMockup() {
+function PhoneMockup({ usdtBalance, loggedIn }) {
   const rows = [
     { name: "USDT", rate: "Up to 24.85%" },
     { name: "BTC", rate: "Up to 23.19%" },
@@ -61,12 +66,12 @@ function PhoneMockup() {
 
         <div className="mt-3 rounded-2xl border border-black/10 bg-[#f6f7fb] p-2.5">
           <div className="flex items-center justify-between text-[8px] text-black/55">
-            <span>Main balance: 6000.52 USDT</span>
+            <span>Main balance: {loggedIn ? `${USD(usdtBalance)} USDT` : "—"}</span>
             <span>MAX</span>
           </div>
           <div className="mt-2 flex items-center justify-between rounded-xl bg-white px-2 py-1.5 text-[8px] text-black/50 shadow-sm">
             <span>Amount</span>
-            <span>0</span>
+            <span>{loggedIn ? USD(usdtBalance) : "0"}</span>
           </div>
           <div className="mt-2 text-[8px] text-black/45">Min: 5 USDT</div>
           <div className="mt-2 text-[8px] text-black/45">Max: 300 000 USDT</div>
@@ -128,6 +133,19 @@ function TopCard({ title, subtitle, icon, button, muted = false }) {
 }
 
 export default function CryptoLendingLandingPage() {
+  const { isLoggedIn } = useAuth();
+  const [usdtBalance, setUsdtBalance] = useState(null);
+
+  useEffect(() => {
+    if (!isLoggedIn) { setUsdtBalance(null); return; }
+    let cancelled = false;
+    authedFetch(`/api/users/balance`)
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setUsdtBalance(typeof d.balance === "number" ? d.balance : 0); })
+      .catch(() => { if (!cancelled) setUsdtBalance(0); });
+    return () => { cancelled = true; };
+  }, [isLoggedIn]);
+
   return (
     <div className="min-h-screen overflow-hidden bg-[#f4f5f7] text-[#202020]">
       <div className="relative mx-auto max-w-[1440px] px-8 py-8 lg:px-10 lg:py-10">
@@ -176,7 +194,7 @@ export default function CryptoLendingLandingPage() {
           <section className="mt-14 rounded-[28px] bg-white p-6 shadow-[0_12px_34px_rgba(0,0,0,0.08)] border border-black/5 lg:mt-16 lg:p-8">
             <div className="grid items-center gap-10 lg:grid-cols-[420px_1fr] lg:gap-16">
               <div className="flex justify-center lg:justify-start">
-                <PhoneMockup />
+                <PhoneMockup usdtBalance={usdtBalance} loggedIn={isLoggedIn} />
               </div>
               <div className="max-w-[520px]">
                 <div className="inline-flex rounded-full bg-[#edf3ff] px-3 py-1 text-[10px] font-medium text-[#4b7dd6]">Easy to use</div>

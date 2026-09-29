@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { API } from "../config/api";
+import authedFetch from "../utils/authedFetch";
 
 /**
  * Wallet balances laata hai aur unhe fresh rakhta hai.
@@ -35,7 +35,7 @@ export default function useBalances(uid, { intervalMs = 20000 } = {}) {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const res = await fetch(`${API}/api/users/balance?uid=${encodeURIComponent(uid)}`);
+      const res = await authedFetch(`/api/users/balance`);
       if (res.status === 401) {
         setError("session");
         setBalances({});

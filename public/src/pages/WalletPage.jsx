@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { API } from "../config/api";
+import authedFetch from "../utils/authedFetch";
 import { fmtDate } from "../utils/date";
 
 
@@ -74,7 +75,7 @@ export default function WalletDashboard() {
   const fetchBalance = useCallback((showLoading = true) => {
     if (!user?.uid) { setBalanceLoading(false); return; }
     if (showLoading) setBalanceLoading(true);
-    fetch(`${API}/api/users/balance?uid=${user.uid}`)
+    authedFetch(`/api/users/balance`)
       .then(r => r.json())
       .then(d => {
         setRawBalances(d);
@@ -101,7 +102,7 @@ export default function WalletDashboard() {
 
   const fetchPending = useCallback(() => {
     if (!user?.uid) { setPendingRequests([]); return; }
-    fetch(`${API}/api/transactions/user/${user.uid}`)
+    authedFetch(`/api/transactions/user/${user.uid}`)
       .then(r => r.json())
       .then(data => {
         const list = (Array.isArray(data) ? data : []).filter(
@@ -161,9 +162,8 @@ export default function WalletDashboard() {
 
     setWithdrawSubmitting(true);
     try {
-      const res = await fetch(`${API}/api/transactions/withdraw`, {
+      const res = await authedFetch(`/api/transactions/withdraw`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: user.uid,
           userEmail: user.email || "",

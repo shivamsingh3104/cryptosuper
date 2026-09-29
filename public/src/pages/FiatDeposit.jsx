@@ -17,6 +17,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
 import { API } from "../config/api";
+import authedFetch from "../utils/authedFetch";
 
 const PAYMENT_METHODS = [
   { id: "bank", label: "Bank Transfer", icon: "🏦", desc: "Transfer via SWIFT / SEPA / Wire" },
@@ -77,9 +78,8 @@ export default function FiatDeposit() {
     if (Number(amount) < 10) return setMsg("Minimum deposit is $10");
 
     try {
-      const res = await fetch(`${API}/api/transactions/deposit`, {
+      const res = await authedFetch(`/api/transactions/deposit`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: user.uid,
           userEmail: user.email,
@@ -103,7 +103,7 @@ export default function FiatDeposit() {
   const fetchHistory = async () => {
     if (!user?.uid) return;
     try {
-      const res = await fetch(`${API}/api/transactions/user/${user.uid}`);
+      const res = await authedFetch(`/api/transactions/user/${user.uid}`);
       const data = await res.json();
       const deposits = (Array.isArray(data) ? data : []).filter(t =>
         t.type === "deposit" || t.type === "fiat"

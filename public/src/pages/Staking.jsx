@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { API } from "../config/api";
+import authedFetch from "../utils/authedFetch";
 
 const PERIODS = [7, 14, 30, 90, 180, 360];
 
@@ -38,7 +39,7 @@ export default function Staking() {
   const fetchPlans = async () => {
     if (!user?.uid) return;
     try {
-      const res = await fetch(`${API}/api/staking/user/${user.uid}`);
+      const res = await authedFetch(`/api/staking/user/${user.uid}`);
       const data = await res.json();
       if (Array.isArray(data)) setActivePlans(data);
     } catch {}
@@ -47,7 +48,7 @@ export default function Staking() {
   const fetchBalance = async () => {
     if (!user?.uid) return;
     try {
-      const res = await fetch(`${API}/api/users/balance?uid=${user.uid}`);
+      const res = await authedFetch(`/api/users/balance`);
       const data = await res.json();
       if (data) setBalances(data);
     } catch {}
@@ -78,9 +79,8 @@ export default function Staking() {
     setLoading(true);
     setMsg(null);
     try {
-      const res = await fetch(`${API}/api/staking/create`, {
+      const res = await authedFetch(`/api/staking/create`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: user.uid,
           userEmail: user.email,
@@ -111,7 +111,7 @@ export default function Staking() {
   const handleCancel = async (id) => {
     if (!window.confirm("Cancel this staking plan?")) return;
     try {
-      const res = await fetch(`${API}/api/staking/cancel/${id}`, { method: "PUT" });
+      const res = await authedFetch(`/api/staking/cancel/${id}`, { method: "PUT" });
       const data = await res.json();
       if (data.error) { setMsg(data.error); } else { setMsg(data.message); fetchPlans(); }
     } catch { setMsg("Failed to cancel"); }
@@ -120,7 +120,7 @@ export default function Staking() {
 
   const handleClaim = async (id) => {
     try {
-      const res = await fetch(`${API}/api/staking/claim/${id}`, { method: "PUT" });
+      const res = await authedFetch(`/api/staking/claim/${id}`, { method: "PUT" });
       const data = await res.json();
       if (data.error) { setMsg(data.error); } else { setMsg(data.message); fetchPlans(); }
     } catch { setMsg("Failed to claim"); }

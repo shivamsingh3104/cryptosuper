@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { API } from "../config/api";
+import authedFetch from "../utils/authedFetch";
 
 const TABS = [
   { label: "All transactions", path: "/history" },
@@ -23,7 +24,7 @@ export default function HistoryPage() {
   useEffect(() => {
     if (!user?.uid) { setLoading(false); return; }
     setLoading(true);
-    fetch(`${API}/api/transactions/user/${user.uid}`)
+    authedFetch(`/api/transactions/user/${user.uid}`)
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data)) setAllTx(data);

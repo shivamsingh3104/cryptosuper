@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 const CURRENCIES = [
   {code:"EUR",flag:"🇪🇺"},{code:"USD",flag:"🇺🇸"},{code:"JPY",flag:"🇯🇵"},
@@ -12,30 +12,20 @@ export default function CrossRates() {
   const [rates,   setRates]   = useState({});
   const [loading, setLoading] = useState(true);
   const [lastUpd, setLastUpd] = useState(null);
+  const [error,   setError]   = useState("");
   const [hov,     setHov]     = useState(null);
-  const tickRef = useRef(null);
 
   const fetchRates = useCallback(async () => {
     try {
+      setError("");
       const res  = await fetch("https://open.er-api.com/v6/latest/USD");
       const data = await res.json();
       if (data.rates) { setRates(data.rates); setLastUpd(new Date()); }
+      else setError("Could not load real exchange rates.");
     } catch {
-      setRates({EUR:0.85,USD:1,JPY:159,GBP:0.74,CHF:0.78,AUD:1.41,CAD:1.38,NZD:1.7,CNY:6.82,SEK:9.2,NOK:9.4,DKK:6.3,ZAR:16.4,HKD:7.83});
+      setError("Could not load real exchange rates.");
+      setRates({});
     } finally { setLoading(false); }
-  }, []);
-
-  // Tick: simulate micro-movement every 2s
-  useEffect(() => {
-    tickRef.current = setInterval(() => {
-      setRates(prev => {
-        const next = {...prev};
-        Object.keys(next).forEach(k => { next[k] = next[k]*(1+(Math.random()-0.5)*0.0003); });
-        setLastUpd(new Date());
-        return next;
-      });
-    }, 2000);
-    return () => clearInterval(tickRef.current);
   }, []);
 
   useEffect(() => { fetchRates(); const t=setInterval(fetchRates,60000); return ()=>clearInterval(t); }, [fetchRates]);
@@ -65,10 +55,11 @@ export default function CrossRates() {
       <div className="cr-header">
         <h2 className="cr-title">Cross Rates</h2>
         <div className="cr-meta">
-          {lastUpd && <span className="tl-live">🟢 Live · {lastUpd.toLocaleTimeString()}</span>}
+          {lastUpd && <span className="tl-live">🟢 Updated · {lastUpd.toLocaleTimeString()}</span>}
           <button className="tool-refresh-btn" onClick={fetchRates}>↻</button>
         </div>
       </div>
+      {error && <div className="tool-error" style={{ color: "#ef5350", fontSize: 12, marginBottom: 8 }}>{error}</div>}
       {loading && <div className="tool-loading"><div className="spinner"/></div>}
       {!loading && (
         <div className="cr-table-wrap">

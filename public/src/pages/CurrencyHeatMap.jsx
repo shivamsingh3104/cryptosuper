@@ -17,8 +17,8 @@ export default function CurrencyHeatMap() {
   const [rates,   setRates]   = useState({});
   const [loading, setLoading] = useState(true);
   const [lastUpd, setLastUpd] = useState(null);
-  const [period,  setPeriod]  = useState("1D");
-  const tickRef = useRef(null);
+  const [error,   setError]   = useState("");
+  const prevRates = useRef(null);
 
   const computeChanges = useCallback((cur, prev) => {
     const map = {};
@@ -39,44 +39,23 @@ export default function CurrencyHeatMap() {
 
   const fetchData = useCallback(async () => {
     try {
+      setError("");
       const res  = await fetch("https://open.er-api.com/v6/latest/USD");
       const data = await res.json();
       if (data.rates) {
         const cur = data.rates;
-        // Simulate "previous" with small random noise
-        const prev = {};
-        Object.keys(cur).forEach(k => { prev[k] = cur[k] * (1 + (Math.random()-0.5)*0.004); });
+        const prev = prevRates.current;
+        prevRates.current = cur;
         setRates(cur);
-        setChanges(computeChanges(cur, prev));
+        setChanges(prev ? computeChanges(cur, prev) : {});
         setLastUpd(new Date());
-      }
+      } else setError("Could not load real exchange rates.");
     } catch {
-      // Fallback rates
-      const fb = { EUR:0.85,USD:1,JPY:159,GBP:0.74,CHF:0.78,AUD:1.41,CAD:1.38,NZD:1.7,SEK:9.2,NOK:9.4,DKK:6.3,HKD:7.83 };
-      const pr = {}; Object.keys(fb).forEach(k=>{ pr[k]=fb[k]*(1+(Math.random()-0.5)*0.004); });
-      setRates(fb); setChanges(computeChanges(fb,pr));
+      setError("Could not load real exchange rates.");
+      setRates({});
+      setChanges({});
     } finally { setLoading(false); }
   }, [computeChanges]);
-
-  // Tick: simulate live price movement every 3s
-  useEffect(() => {
-    tickRef.current = setInterval(() => {
-      setChanges(prev => {
-        const next = {};
-        CURRENCIES.forEach(from => {
-          next[from] = {};
-          CURRENCIES.forEach(to => {
-            if (from===to) { next[from][to]=null; return; }
-            const old = prev[from]?.[to] ?? 0;
-            next[from][to] = parseFloat((old + (Math.random()-0.5)*0.03).toFixed(2));
-          });
-        });
-        return next;
-      });
-      setLastUpd(new Date());
-    }, 3000);
-    return () => clearInterval(tickRef.current);
-  }, []);
 
   useEffect(() => {
     fetchData();
@@ -89,15 +68,12 @@ export default function CurrencyHeatMap() {
       <div className="cr-header">
         <h2 className="cr-title">Currency Heatmap</h2>
         <div className="cr-meta">
-          <div className="hm-period-tabs">
-            {["1D","1W","1M"].map(p=>(
-              <button key={p} className={`hm-period-tab${period===p?" active":""}`} onClick={()=>setPeriod(p)}>{p}</button>
-            ))}
-          </div>
-          {lastUpd && <span className="tl-live">🟢 {lastUpd.toLocaleTimeString()}</span>}
+          {lastUpd && <span className="tl-live">🟢 Updated · {lastUpd.toLocaleTimeString()}</span>}
           <button className="tool-refresh-btn" onClick={fetchData}>↻</button>
         </div>
       </div>
+
+      {error && <div className="tool-error" style={{ color: "#ef5350", fontSize: 12, marginBottom: 8 }}>{error}</div>}
 
       {loading && <div className="tool-loading"><div className="spinner"/><p>Loading…</p></div>}
 

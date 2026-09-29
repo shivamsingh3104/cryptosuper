@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { API } from "../config/api";
+import authedFetch from "../utils/authedFetch";
 
 export default function UserDashboard() {
   const { user, isLoggedIn, logout, getProfile, updateProfile } = useAuth();
@@ -24,11 +25,11 @@ export default function UserDashboard() {
       if (p) { setProfile(p); setForm({ name: p.name || "", phone: p.phone || "", country: p.country || "" }); }
       setLoading(false);
     })();
-    fetch(`${API}/api/swap/user/${user?.uid}`)
+    authedFetch(`/api/swap/user/${user?.uid}`)
       .then(r => r.json()).then(d => setSwapHistory(d || [])).catch(() => {});
     fetch(`${API}/api/wallets`)
       .then(r => r.json()).then(d => setWalletList(d || [])).catch(() => {});
-    fetch(`${API}/api/users/balance?uid=${user?.uid}`)
+    authedFetch(`/api/users/balance`)
       .then(r => r.json()).then(d => setUserBalance(d.balance || 0)).catch(() => {});
   }, [isLoggedIn]);
 

@@ -1,18 +1,15 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth } from "../firebase";
-import { API } from "../config/api";
+import authedFetch from "../utils/authedFetch";
 
 const AuthContext = createContext(null);
 
 // 🔽 Backend sync function
 async function syncUserToBackend(firebaseUser, loginMethod) {
   try {
-    await fetch(`${API}/api/users/sync`, {
+    await authedFetch("/api/users/sync", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
       body: JSON.stringify({
         uid: firebaseUser.uid,
         email: firebaseUser.email,
@@ -94,7 +91,7 @@ useEffect(() => {
   const getProfile = async () => {
     if (!user?.uid) return null;
     try {
-      const res = await fetch(`${API}/api/users/me?uid=${user.uid}`);
+      const res = await authedFetch(`/api/users/me`);
       return res.ok ? res.json() : null;
     } catch {
       return null;
@@ -105,11 +102,8 @@ useEffect(() => {
   const updateProfile = async (data) => {
     if (!user?.uid) return null;
     try {
-      const res = await fetch(`${API}/api/users/me`, {
+      const res = await authedFetch(`/api/users/me`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json"
-        },
         body: JSON.stringify({
           uid: user.uid,
           ...data

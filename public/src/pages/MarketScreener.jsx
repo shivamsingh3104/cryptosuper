@@ -1,7 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { API } from "../config/api";
-
-const EXCHANGES = ["BINANCE","BYBIT","OKX","KUCOIN","KRAKEN","COINBASE","BITFINEX","HUOBI","GATE"];
 
 function getRating(chg) {
   if (chg >  3) return { label:"Strong Buy",  color:"#26a69a", dir:"↑" };
@@ -28,33 +26,22 @@ export default function MarketScreener() {
   const [sortDir, setSortDir] = useState("desc");
   const [page,    setPage]    = useState(1);
   const [lastUpd, setLastUpd] = useState(null);
-  const tickRef = useRef(null);
   const PER = 15;
 
   const buildRows = useCallback((data) => {
-    const result = [];
-    data.forEach(c => {
-      const exCount = Math.floor(Math.random()*3)+1;
-      for (let i=0;i<exCount;i++) {
-        const ex   = EXCHANGES[Math.floor(Math.random()*EXCHANGES.length)];
-        const var1 = 1+(Math.random()-0.5)*0.002;
-        const chg  = (c.price_change_percentage_24h??0)+(Math.random()-0.5)*0.4;
-        const price= c.current_price*var1;
-        const vol  = c.total_volume*(0.05+Math.random()*0.35);
-        result.push({
-          id:    `${c.id}-${ex}-${i}`,
-          ticker:`${c.symbol.toUpperCase()}USDT`,
-          image: c.image, name: c.name,
-          price, chgPct:chg, chg:price*chg/100,
-          high: c.high_24h??price*1.02,
-          low:  c.low_24h??price*0.98,
-          vol, volUsd: vol*price,
-          volChg: 60+Math.random()*120,
-          exchange: ex,
-        });
-      }
-    });
-    return result;
+    return (data || []).map(c => ({
+      id: c.id,
+      ticker: `${c.symbol.toUpperCase()}USDT`,
+      image: c.image,
+      name: c.name,
+      price: c.current_price,
+      chgPct: c.price_change_percentage_24h ?? 0,
+      chg: (c.current_price ?? 0) * ((c.price_change_percentage_24h ?? 0) / 100),
+      high: c.high_24h,
+      low: c.low_24h,
+      vol: c.total_volume,
+      volUsd: c.total_volume,
+    }));
   }, []);
 
   const fetchData = useCallback(async () => {
@@ -67,23 +54,11 @@ export default function MarketScreener() {
     finally { setLoading(false); }
   }, [buildRows]);
 
-  // Tick: update prices every 2s
-  const startTick = useCallback(() => {
-    tickRef.current = setInterval(() => {
-      setRows(prev => prev.map(r => {
-        const newPrice = r.price*(1+(Math.random()-0.5)*0.0006);
-        const newChg   = r.chgPct+(Math.random()-0.5)*0.05;
-        return { ...r, price:newPrice, chgPct:newChg, chg:newPrice*newChg/100 };
-      }));
-      setLastUpd(new Date());
-    }, 2000);
-  }, []);
-
   useEffect(() => {
-    fetchData().then(startTick);
-    const refetchId = setInterval(fetchData, 60000);
-    return () => { clearInterval(tickRef.current); clearInterval(refetchId); };
-  }, [fetchData, startTick]);
+    fetchData();
+    const refetchId = setInterval(fetchData, 30000);
+    return () => clearInterval(refetchId);
+  }, [fetchData]);
 
   const filtered = rows.filter(r =>
     !search.trim() || r.ticker.toLowerCase().includes(search.toLowerCase()) || r.name.toLowerCase().includes(search.toLowerCase())
@@ -128,7 +103,6 @@ export default function MarketScreener() {
                   <th className="tc-num" onClick={()=>handleSort("vol")}>VOLUME</th>
                   <th className="tc-num ms-th-sorted" onClick={()=>handleSort("volUsd")}>VOL USD</th>
                   <th className="tc-num">RATING</th>
-                  <th className="tc-num">EXCHANGE</th>
                 </tr>
               </thead>
               <tbody>
@@ -147,11 +121,10 @@ export default function MarketScreener() {
                       <td className="tc-num-cell">{c.low?.toFixed(c.low>100?2:4)}</td>
                       <td className="tc-num-cell">{fmtBig(c.vol)}</td>
                       <td className="tc-num-cell ms-volUsd-cell">{fmtBig(c.volUsd)}</td>
-                      <td className="tc-num-cell">
-                        <span style={{color:rating.color,fontWeight:600,fontSize:12}}>{rating.dir} {rating.label}</span>
-                      </td>
-                      <td className="tc-num-cell ms-exchange-cell">{c.exchange}</td>
-                    </tr>
+<td className="tc-num-cell">
+                          <span style={{color:rating.color,fontWeight:600,fontSize:12}}>{rating.dir} {rating.label}</span>
+                        </td>
+                      </tr>
                   );
                 })}
               </tbody>

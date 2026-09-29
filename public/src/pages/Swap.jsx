@@ -3,6 +3,7 @@ import { useCryptoData, fmtPrice } from "../hooks/useCryptoData";
 import useBalances from "../hooks/useBalances";
 import { useAuth } from "../context/AuthContext";
 import { API } from "../config/api";
+import authedFetch from "../utils/authedFetch";
 
 const ExchangePage = () => {
   const { user } = useAuth();
@@ -170,7 +171,7 @@ const ExchangePage = () => {
 
   useEffect(() => {
     if (!user?.uid) return;
-    fetch(`${API}/api/swap/user/${user.uid}`)
+    authedFetch(`/api/swap/user/${user.uid}`)
       .then(res => res.json())
       .then(data => setMySwaps(data || []))
       .catch(() => {});
@@ -223,9 +224,8 @@ const ExchangePage = () => {
     }
     setSubmitting(true);
     try {
-      const res = await fetch(`${API}/api/swap/create`, {
+      const res = await authedFetch(`/api/swap/create`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: user.uid,
           userEmail: user.email,
