@@ -59,6 +59,36 @@ function writeDB(file, data) {
   writeFileSync(file, JSON.stringify(data, null, 2), "utf-8");
 }
 
+// Admin list ke liye users ko Firestore se padhte hain. Pehle ye local
+// data/users.json se padha jata tha — production (Render) par wo file gitignore
+// hai aur filesystem ephemeral hai, isliye list hamesha khaali aati thi.
+// Firestore hi real source of truth hai (/api/users/sync isme mirror karta hai).
+async function readUsers() {
+  try {
+    const snapshot = await db.collection("users").get();
+    return snapshot.docs.map((doc) => {
+      const data = doc.data() || {};
+      return {
+        uid: data.uid || doc.id,
+        email: data.email || "",
+        name: data.name || "",
+        photo: data.photo || null,
+        loginMethod: data.loginMethod || "email",
+        role: data.role || "user",
+        createdAt: data.createdAt || null,
+        lastLogin: data.lastLogin || null,
+        loginCount: data.loginCount || 1,
+        status: data.status || "active",
+        phone: data.phone || "",
+        country: data.country || "",
+      };
+    });
+  } catch (err) {
+    console.error("[admin] Firestore readUsers fail, JSON fallback:", err.message);
+    return readDB(USERS_FILE);
+  }
+}
+
 // Firestore Timestamp / Date / string / { _seconds } — sab sortable bana deta hai.
 // new Date(timestampObject) Naad deta hai, isliye direct sort toot jaata tha.
 function toMillis(value) {
@@ -325,13 +355,13 @@ function adminActor(req) {
 // Admin auth ab Firebase ID token + Firestore role check karta hai.
 // Shared secret / hardcoded password poora hata diya gaya hai.
 
-app.get("/api/admin/users", requireAdmin, (req, res) => {
-  const users = readDB(USERS_FILE);
+app.get("/api/admin/users", requireAdmin, async (req, res) => {
+  const users = await readUsers();
   return res.json(users);
 });
 
-app.get("/api/admin/stats", requireAdmin, (req, res) => {
-  const users = readDB(USERS_FILE);
+app.get("/api/admin/stats", requireAdmin, async (req, res) => {
+  const users = await readUsers();
   const total = users.length;
   const googleUsers = users.filter(u => u.loginMethod === "google").length;
   const emailUsers = users.filter(u => u.loginMethod === "email").length;
@@ -352,19 +382,24 @@ app.put("/api/admin/users/:uid/status", requireAdmin, async (req, res) => {
     const { uid } = req.params;
     const { status } = req.body;
 
-    const users = readDB(USERS_FILE);
-    const idx = users.findIndex(u => u.uid === uid);
-    if (idx === -1) return res.status(404).json({ message: "User not found" });
+    const userRef = db.collection("users").doc(uid);
+    const doc = await userRef.get();
+    if (!doc.exists) return res.status(404).json({ message: "User not found" });
 
-    users[idx].status = status;
-    writeDB(USERS_FILE, users);
+    const updated = { ...doc.data(), uid, status, syncedAt: new Date().toISOString() };
+    await userRef.set(updated, { merge: true });
 
-    await db.collection("users").doc(uid).set({
-      ...users[idx],
-      syncedAt: new Date().toISOString(),
-    }, { merge: true });
+    // Local JSON ko best-effort mirror karte hain (agar file maujood ho).
+    try {
+      const users = readDB(USERS_FILE);
+      const idx = users.findIndex(u => u.uid === uid);
+      if (idx !== -1) {
+        users[idx].status = status;
+        writeDB(USERS_FILE, users);
+      }
+    } catch { /* JSON mirror optional hai */ }
 
-    return res.json(users[idx]);
+    return res.json(updated);
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -373,17 +408,18 @@ app.put("/api/admin/users/:uid/status", requireAdmin, async (req, res) => {
 app.delete("/api/admin/users/:uid", requireAdmin, async (req, res) => {
   try {
     const { uid } = req.params;
-    let users = readDB(USERS_FILE);
-    const before = users.length;
-    users = users.filter(u => u.uid !== uid);
 
-    if (users.length === before) {
-      return res.status(404).json({ message: "User not found" });
-    }
+    const userRef = db.collection("users").doc(uid);
+    const doc = await userRef.get();
+    if (!doc.exists) return res.status(404).json({ message: "User not found" });
 
-    writeDB(USERS_FILE, users);
+    await userRef.delete();
 
-    await db.collection("users").doc(uid).delete().catch(() => null);
+    // Local JSON ko best-effort mirror karte hain.
+    try {
+      const users = readDB(USERS_FILE);
+      writeDB(USERS_FILE, users.filter(u => u.uid !== uid));
+    } catch { /* JSON mirror optional hai */ }
 
     return res.json({ message: "User deleted" });
   } catch (err) {
@@ -391,9 +427,9 @@ app.delete("/api/admin/users/:uid", requireAdmin, async (req, res) => {
   }
 });
 
-app.get("/api/admin/users/search", requireAdmin, (req, res) => {
+app.get("/api/admin/users/search", requireAdmin, async (req, res) => {
   const q = (req.query.q || "").toLowerCase();
-  const users = readDB(USERS_FILE);
+  const users = await readUsers();
   const found = q
     ? users.filter(u =>
         (u.email || "").toLowerCase().includes(q) ||
