@@ -170,13 +170,13 @@ app.post("/api/users/sync", requireUser, async (req, res) => {
       return res.status(400).json({ message: "Login email required" });
     }
 
-    const users = readDB(USERS_FILE);
+    const userRef = db.collection("users").doc(uid);
+    const doc = await userRef.get();
     const now = new Date().toISOString();
-    const idx = users.findIndex(u => u.uid === uid);
 
     let saved;
 
-    if (idx === -1) {
+    if (!doc.exists) {
       saved = {
         uid,
         email,
@@ -189,23 +189,31 @@ app.post("/api/users/sync", requireUser, async (req, res) => {
         loginCount: 1,
         status: "active",
       };
-      users.push(saved);
     } else {
-      users[idx].lastLogin = now;
-      users[idx].loginCount = (users[idx].loginCount || 0) + 1;
-      users[idx].name = name || users[idx].name;
-      users[idx].photo = photo || users[idx].photo;
-      users[idx].loginMethod = loginMethod || users[idx].loginMethod || "email";
-      saved = users[idx];
+      const prev = doc.data() || {};
+      saved = {
+        ...prev,
+        uid,
+        email: email || prev.email,
+        name: name || prev.name,
+        photo: photo || prev.photo,
+        loginMethod: loginMethod || prev.loginMethod || "email",
+        lastLogin: now,
+        loginCount: (prev.loginCount || 0) + 1,
+        status: prev.status || "active",
+      };
     }
 
-    writeDB(USERS_FILE, users);
+    await userRef.set({ ...saved, syncedAt: now }, { merge: true });
 
-    // mirror into Firestore too
-    await db.collection("users").doc(uid).set({
-      ...saved,
-      syncedAt: now,
-    }, { merge: true });
+    // Local JSON best-effort mirror (sirf convenience ke liye; gitignored hai).
+    try {
+      const users = readDB(USERS_FILE);
+      const idx = users.findIndex(u => u.uid === uid);
+      if (idx === -1) users.push(saved);
+      else users[idx] = { ...users[idx], ...saved };
+      writeDB(USERS_FILE, users);
+    } catch { /* JSON mirror optional hai */ }
 
     return res.json({ message: "User synced", user: saved });
   } catch (err) {
@@ -218,11 +226,10 @@ app.get("/api/users/me", requireUser, async (req, res) => {
   try {
     const uid = req.uid;
 
-    const users = readDB(USERS_FILE);
-    const user = users.find(u => u.uid === uid);
-    if (!user) return res.status(404).json({ message: "User not found" });
+    const doc = await db.collection("users").doc(uid).get();
+    if (!doc.exists) return res.status(404).json({ message: "User not found" });
 
-    return res.json(user);
+    return res.json({ uid, ...doc.data() });
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -234,22 +241,19 @@ app.put("/api/users/me", requireUser, async (req, res) => {
     const { name, phone, country } = req.body;
     const uid = req.uid;
 
-    const users = readDB(USERS_FILE);
-    const idx = users.findIndex(u => u.uid === uid);
-    if (idx === -1) return res.status(404).json({ message: "User not found" });
+    const userRef = db.collection("users").doc(uid);
+    const doc = await userRef.get();
+    if (!doc.exists) return res.status(404).json({ message: "User not found" });
 
-    if (name) users[idx].name = name;
-    if (phone) users[idx].phone = phone;
-    if (country) users[idx].country = country;
+    const updated = { ...doc.data(), uid };
+    if (name) updated.name = name;
+    if (phone) updated.phone = phone;
+    if (country) updated.country = country;
+    updated.syncedAt = new Date().toISOString();
 
-    writeDB(USERS_FILE, users);
+    await userRef.set(updated, { merge: true });
 
-    await db.collection("users").doc(uid).set({
-      ...users[idx],
-      syncedAt: new Date().toISOString(),
-    }, { merge: true });
-
-    return res.json(users[idx]);
+    return res.json(updated);
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
